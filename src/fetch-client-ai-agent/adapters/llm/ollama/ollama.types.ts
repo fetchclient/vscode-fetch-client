@@ -41,7 +41,3 @@ export interface IOllamaChatResponse {
 	prompt_eval_count?: number;
 	eval_count?: number;
 }
-
-export interface IOllamaErrorResponse {
-	error: string;
-}

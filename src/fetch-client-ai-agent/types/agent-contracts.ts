@@ -47,15 +47,24 @@ export type TaskStatus =
 /* LLM                                                                   */
 /* ========================================================================== */
 export type LLMErrorKind =
-	| "network"
 	| "timeout"
-	| "rate_limit"
 	| "aborted"
+	| "network"
+	| "rate_limit"
+	| "server"
+	| "model_not_found"
+	| "api"
+	| "invalid_request"
 	| "invalid_response"
 	| "unknown";
 
+/** Kinds the orchestrator may retry. Everything else fails the task. */
+export const RETRYABLE_LLM_ERRORS: ReadonlySet<LLMErrorKind> =
+	new Set<LLMErrorKind>(["timeout", "network", "rate_limit", "server"]);
+
 export class LLMProviderError extends Error {
 	readonly kind: LLMErrorKind;
+	readonly retryable: boolean;
 	readonly cause?: unknown;
 
 	constructor(
@@ -67,9 +76,9 @@ export class LLMProviderError extends Error {
 		this.name = "LLMProviderError";
 		this.kind = kind;
 		this.cause = options?.cause;
+		this.retryable = RETRYABLE_LLM_ERRORS.has(kind);
 	}
 }
-
 /* ========================================================================== */
 /* ToolCall                                                                   */
 /* ========================================================================== */

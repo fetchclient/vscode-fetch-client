@@ -16,13 +16,13 @@ import {
 	MAX_TIMEOUT_MS,
 	type HttpClientError,
 	type RequestBody,
-	type RequestOptions,
+	type IRequestOptions,
 	type Result,
 } from "./http-client.types";
 
 export async function request<T>(
 	url: string,
-	options: RequestOptions<T> = {},
+	options: IRequestOptions<T> = {},
 ): Promise<Result<T, HttpClientError>> {
 	const {
 		method = "GET",
@@ -31,7 +31,10 @@ export async function request<T>(
 		timeoutMs = DEFAULT_TIMEOUT_MS,
 		signal: callerSignal,
 		parse,
+		fetch: fetchOverride,
 	} = options;
+
+	const fetchImpl = fetchOverride ?? fetch;
 
 	// Invalid timeout is a programmer/configuration error.
 	if (
@@ -102,7 +105,7 @@ export async function request<T>(
 		let response: Response;
 
 		try {
-			response = await fetch(url, {
+			response = await fetchImpl(url, {
 				method,
 				headers: requestParts.headers,
 				body: requestParts.payload,
@@ -116,7 +119,7 @@ export async function request<T>(
 		let text: string;
 
 		try {
-			text = await response.text();
+			text = await readResponseText(response, controller.signal);
 		} catch (cause) {
 			return toAbortOrNetwork(cause);
 		}
@@ -161,6 +164,73 @@ export async function request<T>(
 		clearTimeout(timer);
 		callerSignal?.removeEventListener("abort", onCallerAbort);
 	}
+}
+
+/**
+ * Reads the response body while independently observing cancellation.
+ *
+ * Do not rely exclusively on response.text() rejecting after abort.
+ * The abort listener ensures the request settles even if body reading
+ * does not cooperate with cancellation.
+ */
+function readResponseText(
+	response: Response,
+	signal: AbortSignal,
+): Promise<string> {
+	return new Promise((resolve, reject) => {
+		let settled = false;
+
+		const cleanup = () => {
+			signal.removeEventListener("abort", onAbort);
+		};
+
+		const onAbort = () => {
+			if (settled) {
+				return;
+			}
+
+			settled = true;
+			cleanup();
+			reject(new Error("Response body reading aborted"));
+		};
+
+		signal.addEventListener("abort", onAbort, { once: true });
+
+		// Handle cancellation that happened before listener registration.
+		if (signal.aborted) {
+			onAbort();
+			return;
+		}
+
+		try {
+			response.text().then(
+				(text) => {
+					if (settled) {
+						return;
+					}
+
+					settled = true;
+					cleanup();
+					resolve(text);
+				},
+				(cause: unknown) => {
+					if (settled) {
+						return;
+					}
+
+					settled = true;
+					cleanup();
+					reject(cause);
+				},
+			);
+		} catch (cause) {
+			if (!settled) {
+				settled = true;
+				cleanup();
+				reject(cause);
+			}
+		}
+	});
 }
 
 /** Encodes the request body and deliberately manages Content-Type. */
@@ -223,13 +293,13 @@ function tryJson(text: string): unknown {
 
 export const get = <T>(
 	url: string,
-	options?: Omit<RequestOptions<T>, "method" | "body">,
+	options?: Omit<IRequestOptions<T>, "method" | "body">,
 ) => request<T>(url, { ...options, method: "GET" });
 
 export const post = <T>(
 	url: string,
 	body: RequestBody,
-	options?: Omit<RequestOptions<T>, "method" | "body">,
+	options?: Omit<IRequestOptions<T>, "method" | "body">,
 ) => request<T>(url, { ...options, method: "POST", body });
 
 export function describeError(error: HttpClientError): string {

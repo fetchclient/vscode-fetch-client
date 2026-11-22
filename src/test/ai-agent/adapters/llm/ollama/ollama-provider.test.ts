@@ -21,17 +21,14 @@ describe("OllamaProvider", () => {
 		status = 200,
 		statusText = "OK",
 	): Response {
-		return {
-			ok: status >= 200 && status < 300,
+		const rawText = typeof body === "string" ? body : JSON.stringify(body);
+		return new Response(rawText, {
 			status,
 			statusText,
-			json: vi.fn().mockImplementation(async () => {
-				if (typeof body === "string") {
-					throw new SyntaxError("Unexpected token");
-				}
-				return body;
-			}),
-		} as unknown as Response;
+			headers: {
+				"Content-Type": "application/json",
+			},
+		});
 	}
 
 	describe("constructor", () => {
@@ -44,8 +41,32 @@ describe("OllamaProvider", () => {
 			expect(provider).toBeDefined();
 		});
 
-		it("falls back to global fetch when fetch option is not provided", () => {
-			const provider = new OllamaProvider(defaultOptions);
+		it("falls back to global fetch when fetch option is not provided", async () => {
+			const globalMock = vi.fn().mockResolvedValue(
+				createMockResponse({
+					model: "llama3.2",
+					message: { role: "assistant", content: "ok" },
+					done: true,
+				}),
+			);
+			vi.stubGlobal("fetch", globalMock);
+
+			try {
+				await new OllamaProvider(defaultOptions).generateResponse([], []);
+				expect(globalMock).toHaveBeenCalledTimes(1);
+				expect(globalMock.mock.calls[0][0]).toBe(
+					"http://localhost:11434/api/chat",
+				);
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
+		it("accepts custom timeoutMs option", () => {
+			const provider = new OllamaProvider({
+				...defaultOptions,
+				timeoutMs: 30_000,
+			});
 			expect(provider).toBeDefined();
 		});
 	});
@@ -76,7 +97,10 @@ describe("OllamaProvider", () => {
 			const [url, init] = mockFetch.mock.calls[0];
 			expect(url).toBe("http://localhost:11434/api/chat");
 			expect(init.method).toBe("POST");
-			expect(init.headers).toEqual({ "Content-Type": "application/json" });
+
+			const headers = new Headers(init.headers);
+			expect(headers.get("Content-Type")).toBe("application/json");
+			expect(headers.get("Accept")).toBe("application/json");
 
 			const parsedBody = JSON.parse(init.body);
 			expect(parsedBody).toEqual({
@@ -114,25 +138,29 @@ describe("OllamaProvider", () => {
 			expect(url).toBe("http://localhost:11434/api/chat");
 		});
 
-		it("forwards AbortSignal to fetchFn", async () => {
+		it("links caller abort to the signal passed to fetch", async () => {
 			const controller = new AbortController();
-			const mockFetch = vi.fn().mockResolvedValue(
-				createMockResponse({
-					model: "llama3.2",
-					message: { role: "assistant", content: "Response" },
-					done: true,
-				}),
-			);
+			let forwarded: AbortSignal | undefined;
+
+			const mockFetch = vi.fn().mockImplementation((_url, init) => {
+				forwarded = init.signal;
+				return new Promise((_, reject) => {
+					init.signal.addEventListener("abort", () =>
+						reject(new DOMException("aborted", "AbortError")),
+					);
+					controller.abort();
+				});
+			});
 
 			const provider = new OllamaProvider({
 				...defaultOptions,
 				fetch: mockFetch as unknown as typeof fetch,
 			});
 
-			await provider.generateResponse([], [], controller.signal);
-
-			const [, init] = mockFetch.mock.calls[0];
-			expect(init.signal).toBe(controller.signal);
+			await expect(
+				provider.generateResponse([], [], controller.signal),
+			).rejects.toMatchObject({ kind: "aborted" });
+			expect(forwarded?.aborted).toBe(true);
 		});
 
 		it("maps all message roles correctly (system, user, assistant, tool)", async () => {
@@ -246,7 +274,7 @@ describe("OllamaProvider", () => {
 			const mockFetch = vi.fn().mockResolvedValue(
 				createMockResponse({
 					model: "llama3.2",
-					message: { role: "assistant", content: "OK" },
+					message: { role: "assistant", content: "I am ready" },
 					done: true,
 				}),
 			);
@@ -342,12 +370,13 @@ describe("OllamaProvider", () => {
 			});
 		});
 
-		it("handles response with tool_calls and no content by defaulting content to empty string", async () => {
+		it("handles response with tool_calls and empty content", async () => {
 			const mockFetch = vi.fn().mockResolvedValue(
 				createMockResponse({
 					model: "llama3.2",
 					message: {
 						role: "assistant",
+						content: "",
 						tool_calls: [
 							{ function: { name: "search", arguments: { q: "vitest" } } },
 						],
@@ -367,12 +396,124 @@ describe("OllamaProvider", () => {
 			expect(result.toolCalls?.[0].toolName).toBe("search");
 		});
 
-		it("handles response with undefined message content by defaulting to empty string", async () => {
+		it("throws LLMProviderError(invalid_request) when preparing messages fails", async () => {
+			const circular: Record<string, unknown> = {};
+			circular.self = circular;
+
+			const provider = new OllamaProvider(defaultOptions);
+			const messages: AgentMessage[] = [
+				{
+					id: "1",
+					timestamp: 100,
+					role: "tool",
+					toolResult: {
+						toolCallId: "call-1",
+						success: true,
+						data: circular,
+					},
+				},
+			];
+
+			await expect(
+				provider.generateResponse(messages, []),
+			).rejects.toMatchObject({
+				kind: "invalid_request",
+				message: "Could not prepare messages",
+			});
+		});
+
+		it("marks invalid_request as non-retryable", async () => {
+			const circular: Record<string, unknown> = {};
+			circular.self = circular;
+			const provider = new OllamaProvider(defaultOptions);
+
+			await expect(
+				provider.generateResponse(
+					[
+						{
+							id: "1",
+							timestamp: 100,
+							role: "tool",
+							toolResult: { toolCallId: "c", success: true, data: circular },
+						},
+					],
+					[],
+				),
+			).rejects.toMatchObject({ kind: "invalid_request", retryable: false });
+		});
+
+		it("maps 404 without a body detail to model_not_found", async () => {
+			const provider = new OllamaProvider({
+				...defaultOptions,
+				fetch: vi
+					.fn()
+					.mockResolvedValue(
+						createMockResponse("not found", 404, "Not Found"),
+					) as unknown as typeof fetch,
+			});
+
+			await expect(provider.generateResponse([], [])).rejects.toMatchObject({
+				kind: "model_not_found",
+				message: "Ollama returned 404",
+				retryable: false,
+			});
+		});
+
+		it("throws LLMProviderError(timeout) when response body reading times out", async () => {
+			const mockFetch = vi.fn().mockResolvedValue({
+				ok: true,
+				status: 200,
+				statusText: "OK",
+				text: vi.fn().mockImplementation(() => new Promise<string>(() => {})),
+			});
+
+			const provider = new OllamaProvider({
+				...defaultOptions,
+				timeoutMs: 20,
+				fetch: mockFetch as unknown as typeof fetch,
+			});
+
+			await expect(provider.generateResponse([], [])).rejects.toMatchObject({
+				kind: "timeout",
+				retryable: true,
+			});
+		});
+
+		it("throws LLMProviderError(aborted) when caller aborts during response body reading", async () => {
+			const controller = new AbortController();
+
+			const mockFetch = vi.fn().mockResolvedValue({
+				ok: true,
+				status: 200,
+				statusText: "OK",
+				text: vi.fn().mockImplementation(() => new Promise<string>(() => {})),
+			});
+
+			const provider = new OllamaProvider({
+				...defaultOptions,
+				fetch: mockFetch as unknown as typeof fetch,
+			});
+
+			const pending = provider.generateResponse([], [], controller.signal);
+
+			// Allow fetch to resolve and response body reading to begin.
+			await vi.waitFor(() => {
+				expect(mockFetch).toHaveBeenCalledTimes(1);
+			});
+
+			controller.abort();
+
+			await expect(pending).rejects.toMatchObject({
+				kind: "aborted",
+				retryable: false,
+			});
+		});
+
+		it("throws LLMProviderError(invalid_response) when response body is empty", async () => {
 			const mockFetch = vi.fn().mockResolvedValue(
-				createMockResponse({
-					model: "llama3.2",
-					message: { role: "assistant" },
-					done: true,
+				new Response(null, {
+					status: 200,
+					statusText: "OK",
 				}),
 			);
 
@@ -381,39 +522,65 @@ describe("OllamaProvider", () => {
 				fetch: mockFetch as unknown as typeof fetch,
 			});
 
-			const result = await provider.generateResponse([], []);
-			expect(result.content).toBe("");
-			expect(result.toolCalls).toBeUndefined();
+			await expect(provider.generateResponse([], [])).rejects.toMatchObject({
+				kind: "invalid_response",
+			});
 		});
 	});
 
 	describe("error handling", () => {
-		it("throws LLMProviderError(aborted) when fetch throws AbortError", async () => {
-			const abortError = new Error("The operation was aborted");
-			abortError.name = "AbortError";
+		it("throws LLMProviderError(timeout) when request times out", async () => {
+			const mockFetch = vi.fn().mockImplementation((_url, init) => {
+				return new Promise((_, reject) => {
+					init.signal.addEventListener("abort", () => {
+						reject(new DOMException("The operation was aborted", "AbortError"));
+					});
+				});
+			});
 
-			const mockFetch = vi.fn().mockRejectedValue(abortError);
+			const provider = new OllamaProvider({
+				...defaultOptions,
+				timeoutMs: 20,
+				fetch: mockFetch as unknown as typeof fetch,
+			});
+
+			await expect(provider.generateResponse([], [])).rejects.toMatchObject({
+				kind: "timeout",
+				message: "Ollama did not respond within 20 ms",
+			});
+		});
+
+		it("throws LLMProviderError(aborted) when caller signal is already aborted before request", async () => {
+			const controller = new AbortController();
+			controller.abort();
+
+			const mockFetch = vi.fn();
 			const provider = new OllamaProvider({
 				...defaultOptions,
 				fetch: mockFetch as unknown as typeof fetch,
 			});
 
-			await expect(provider.generateResponse([], [])).rejects.toThrow(
-				LLMProviderError,
-			);
-			await expect(provider.generateResponse([], [])).rejects.toMatchObject({
+			await expect(
+				provider.generateResponse([], [], controller.signal),
+			).rejects.toMatchObject({
 				kind: "aborted",
 				message: "Request aborted",
 			});
+			expect(mockFetch).not.toHaveBeenCalled();
 		});
 
-		it("throws LLMProviderError(aborted) when signal is aborted during fetch rejection", async () => {
+		it("throws LLMProviderError(aborted) when signal is aborted during fetch", async () => {
 			const controller = new AbortController();
-			controller.abort();
 
-			const mockFetch = vi
-				.fn()
-				.mockRejectedValue(new Error("Network connection dropped"));
+			const mockFetch = vi.fn().mockImplementation((_url, init) => {
+				return new Promise((_, reject) => {
+					init.signal.addEventListener("abort", () => {
+						reject(new DOMException("The operation was aborted", "AbortError"));
+					});
+					controller.abort();
+				});
+			});
+
 			const provider = new OllamaProvider({
 				...defaultOptions,
 				fetch: mockFetch as unknown as typeof fetch,
@@ -459,11 +626,11 @@ describe("OllamaProvider", () => {
 
 			await expect(provider.generateResponse([], [])).rejects.toMatchObject({
 				kind: "rate_limit",
-				message: "Ollama returned 429 Too Many Requests: rate limit exceeded",
+				message: "Ollama returned 429: rate limit exceeded",
 			});
 		});
 
-		it("throws LLMProviderError(unknown) on HTTP 500 without error body detail", async () => {
+		it("throws LLMProviderError(server) on HTTP 500 without error body detail", async () => {
 			const mockFetch = vi
 				.fn()
 				.mockResolvedValue(
@@ -475,12 +642,33 @@ describe("OllamaProvider", () => {
 			});
 
 			await expect(provider.generateResponse([], [])).rejects.toMatchObject({
-				kind: "unknown",
-				message: "Ollama returned 500 Internal Server Error",
+				kind: "server",
+				message: "Ollama returned 500",
 			});
 		});
 
-		it("throws LLMProviderError(unknown) on HTTP 404 with error body detail", async () => {
+		it("throws LLMProviderError(server) on HTTP 500 with error body detail", async () => {
+			const mockFetch = vi
+				.fn()
+				.mockResolvedValue(
+					createMockResponse(
+						{ error: "out of memory" },
+						500,
+						"Internal Server Error",
+					),
+				);
+			const provider = new OllamaProvider({
+				...defaultOptions,
+				fetch: mockFetch as unknown as typeof fetch,
+			});
+
+			await expect(provider.generateResponse([], [])).rejects.toMatchObject({
+				kind: "server",
+				message: "Ollama returned 500: out of memory",
+			});
+		});
+
+		it("throws LLMProviderError(model_not_found) on HTTP 404 with error body detail", async () => {
 			const mockFetch = vi
 				.fn()
 				.mockResolvedValue(
@@ -496,24 +684,34 @@ describe("OllamaProvider", () => {
 			});
 
 			await expect(provider.generateResponse([], [])).rejects.toMatchObject({
-				kind: "unknown",
-				message: "Ollama returned 404 Not Found: model 'unknown' not found",
+				kind: "model_not_found",
+				message: "Ollama returned 404: model 'unknown' not found",
 			});
 		});
 
-		it("throws LLMProviderError(invalid_response) when response JSON parsing fails", async () => {
-			const response = {
-				ok: true,
-				status: 200,
-				statusText: "OK",
-				json: vi
-					.fn()
-					.mockRejectedValue(
-						new SyntaxError("Unexpected token < in JSON at position 0"),
-					),
-			} as unknown as Response;
+		it("throws LLMProviderError(api) on HTTP 400 response", async () => {
+			const mockFetch = vi
+				.fn()
+				.mockResolvedValue(
+					createMockResponse({ error: "invalid options" }, 400, "Bad Request"),
+				);
+			const provider = new OllamaProvider({
+				...defaultOptions,
+				fetch: mockFetch as unknown as typeof fetch,
+			});
 
-			const mockFetch = vi.fn().mockResolvedValue(response);
+			await expect(provider.generateResponse([], [])).rejects.toMatchObject({
+				kind: "api",
+				message: "Ollama returned 400: invalid options",
+			});
+		});
+
+		it("throws LLMProviderError(invalid_response) when response body is non-JSON", async () => {
+			const mockFetch = vi
+				.fn()
+				.mockResolvedValue(
+					createMockResponse("<!DOCTYPE html><html>error</html>", 200, "OK"),
+				);
 			const provider = new OllamaProvider({
 				...defaultOptions,
 				fetch: mockFetch as unknown as typeof fetch,
@@ -521,44 +719,88 @@ describe("OllamaProvider", () => {
 
 			await expect(provider.generateResponse([], [])).rejects.toMatchObject({
 				kind: "invalid_response",
-				message: "Ollama returned non-JSON body",
+				message: "Response body is not valid JSON",
 			});
 		});
 
-		it("throws LLMProviderError(aborted) when response JSON parsing fails while signal is aborted", async () => {
-			const controller = new AbortController();
-			controller.abort();
-
-			const response = {
-				ok: true,
-				status: 200,
-				statusText: "OK",
-				json: vi.fn().mockRejectedValue(new Error("Aborted read")),
-			} as unknown as Response;
-
-			const mockFetch = vi.fn().mockResolvedValue(response);
+		it("throws LLMProviderError(invalid_response) when response fails schema validation", async () => {
+			const mockFetch = vi.fn().mockResolvedValue(
+				createMockResponse({
+					model: "llama3.2",
+					message: { role: "assistant" }, // missing content
+					done: true,
+				}),
+			);
 			const provider = new OllamaProvider({
 				...defaultOptions,
 				fetch: mockFetch as unknown as typeof fetch,
 			});
 
+			await expect(provider.generateResponse([], [])).rejects.toMatchObject({
+				kind: "invalid_response",
+				message: "Ollama response invalid: message.content must be a string",
+			});
+		});
+
+		it("marks timeout as retryable", async () => {
+			const mockFetch = vi.fn().mockImplementation((_url, init) => {
+				return new Promise((_, reject) => {
+					init.signal.addEventListener("abort", () =>
+						reject(new DOMException("aborted", "AbortError")),
+					);
+				});
+			});
+			const provider = new OllamaProvider({
+				...defaultOptions,
+				timeoutMs: 20,
+				fetch: mockFetch as unknown as typeof fetch,
+			});
+
+			await expect(provider.generateResponse([], [])).rejects.toMatchObject({
+				kind: "timeout",
+				retryable: true,
+			});
+		});
+
+		it("marks network failure as retryable", async () => {
+			const provider = new OllamaProvider({
+				...defaultOptions,
+				fetch: vi
+					.fn()
+					.mockRejectedValue(
+						new TypeError("fetch failed"),
+					) as unknown as typeof fetch,
+			});
+
+			await expect(provider.generateResponse([], [])).rejects.toMatchObject({
+				kind: "network",
+				retryable: true,
+			});
+		});
+
+		it("marks caller abort as non-retryable", async () => {
+			const controller = new AbortController();
+			controller.abort();
+			const provider = new OllamaProvider({
+				...defaultOptions,
+				fetch: vi.fn() as unknown as typeof fetch,
+			});
+
 			await expect(
 				provider.generateResponse([], [], controller.signal),
-			).rejects.toMatchObject({
-				kind: "aborted",
-				message: "Request aborted",
-			});
+			).rejects.toMatchObject({ kind: "aborted", retryable: false });
 		});
 	});
 
 	describe("parseOllamaChatResponse", () => {
+		const validBase = {
+			model: "llama3.2",
+			done: true,
+			message: { role: "assistant", content: "Hello" },
+		};
+
 		it("accepts a valid chat response with content only", () => {
-			const raw = {
-				model: "llama3.2",
-				message: { role: "assistant", content: "Hello" },
-				done: true,
-			};
-			expect(parseOllamaChatResponse(raw)).toEqual(raw);
+			expect(parseOllamaChatResponse(validBase)).toEqual(validBase);
 		});
 
 		it("accepts a valid chat response with tool_calls", () => {
@@ -588,45 +830,112 @@ describe("OllamaProvider", () => {
 			);
 		});
 
+		it("fails when model is not a non-empty string", () => {
+			for (const invalidModel of ["", "   ", 123, null, undefined]) {
+				expect(() =>
+					parseOllamaChatResponse({
+						...validBase,
+						model: invalidModel,
+					}),
+				).toThrow("Ollama response invalid: model must be a non-empty string");
+			}
+		});
+
+		it("fails when done is not a boolean", () => {
+			for (const invalidDone of ["true", 1, null, undefined]) {
+				expect(() =>
+					parseOllamaChatResponse({
+						...validBase,
+						done: invalidDone,
+					}),
+				).toThrow("Ollama response invalid: done must be a boolean");
+			}
+		});
+
+		it("fails when done is false (non-streaming required)", () => {
+			expect(() =>
+				parseOllamaChatResponse({
+					...validBase,
+					done: false,
+				}),
+			).toThrow(
+				"Ollama response invalid: done must be true for a non-streaming response",
+			);
+		});
+
 		it("fails when message is not an object", () => {
-			expect(() => parseOllamaChatResponse({ message: null })).toThrow(
-				"Ollama response invalid: message must be an object",
-			);
-			expect(() => parseOllamaChatResponse({ message: "assistant" })).toThrow(
-				"Ollama response invalid: message must be an object",
-			);
+			for (const invalidMessage of [null, "assistant", [1, 2], undefined]) {
+				expect(() =>
+					parseOllamaChatResponse({
+						...validBase,
+						message: invalidMessage,
+					}),
+				).toThrow("Ollama response invalid: message must be an object");
+			}
 		});
 
 		it("fails when message.role is not assistant", () => {
 			expect(() =>
-				parseOllamaChatResponse({ message: { role: "user", content: "hi" } }),
+				parseOllamaChatResponse({
+					...validBase,
+					message: { role: "user", content: "hi" },
+				}),
+			).toThrow('Ollama response invalid: message.role must be "assistant"');
+
+			expect(() =>
+				parseOllamaChatResponse({
+					...validBase,
+					message: { role: "system", content: "hi" },
+				}),
 			).toThrow('Ollama response invalid: message.role must be "assistant"');
 		});
 
-		it("fails when message.content is present but not a string", () => {
-			expect(() =>
-				parseOllamaChatResponse({
-					message: { role: "assistant", content: 12345 },
-				}),
-			).toThrow(
-				"Ollama response invalid: message.content must be a string when present",
-			);
+		it("fails when message.content is not a string", () => {
+			for (const invalidContent of [12345, null, undefined, true, {}]) {
+				expect(() =>
+					parseOllamaChatResponse({
+						...validBase,
+						message: { role: "assistant", content: invalidContent },
+					}),
+				).toThrow("Ollama response invalid: message.content must be a string");
+			}
 		});
 
 		it("fails when message.tool_calls is not an array", () => {
-			expect(() =>
-				parseOllamaChatResponse({
-					message: { role: "assistant", tool_calls: "not-an-array" },
-				}),
-			).toThrow(
-				"Ollama response invalid: message.tool_calls must be an array when present",
-			);
+			for (const invalidToolCalls of ["not-an-array", 123, {}]) {
+				expect(() =>
+					parseOllamaChatResponse({
+						...validBase,
+						message: {
+							role: "assistant",
+							content: "",
+							tool_calls: invalidToolCalls,
+						},
+					}),
+				).toThrow(
+					"Ollama response invalid: message.tool_calls must be an array when present",
+				);
+			}
 		});
 
 		it("fails when tool_calls element is not an object", () => {
 			expect(() =>
 				parseOllamaChatResponse({
-					message: { role: "assistant", tool_calls: [null] },
+					...validBase,
+					message: { role: "assistant", content: "", tool_calls: [null] },
+				}),
+			).toThrow(
+				"Ollama response invalid: message.tool_calls[0] must be an object",
+			);
+
+			expect(() =>
+				parseOllamaChatResponse({
+					...validBase,
+					message: {
+						role: "assistant",
+						content: "",
+						tool_calls: ["not-an-object"],
+					},
 				}),
 			).toThrow(
 				"Ollama response invalid: message.tool_calls[0] must be an object",
@@ -636,7 +945,25 @@ describe("OllamaProvider", () => {
 		it("fails when tool_calls function is not an object", () => {
 			expect(() =>
 				parseOllamaChatResponse({
-					message: { role: "assistant", tool_calls: [{ function: null }] },
+					...validBase,
+					message: {
+						role: "assistant",
+						content: "",
+						tool_calls: [{ function: null }],
+					},
+				}),
+			).toThrow(
+				"Ollama response invalid: message.tool_calls[0].function must be an object",
+			);
+
+			expect(() =>
+				parseOllamaChatResponse({
+					...validBase,
+					message: {
+						role: "assistant",
+						content: "",
+						tool_calls: [{ function: "not-an-obj" }],
+					},
 				}),
 			).toThrow(
 				"Ollama response invalid: message.tool_calls[0].function must be an object",
@@ -644,11 +971,13 @@ describe("OllamaProvider", () => {
 		});
 
 		it("fails when tool_calls function.name is not a non-empty string", () => {
-			for (const name of ["", "   ", 123]) {
+			for (const name of ["", "   ", 123, null, undefined]) {
 				expect(() =>
 					parseOllamaChatResponse({
+						...validBase,
 						message: {
 							role: "assistant",
+							content: "",
 							tool_calls: [{ function: { name, arguments: {} } }],
 						},
 					}),
@@ -659,11 +988,13 @@ describe("OllamaProvider", () => {
 		});
 
 		it("fails when tool_calls function.arguments is not an object", () => {
-			for (const args of [null, "invalid", [1, 2]]) {
+			for (const args of [null, "invalid", [1, 2], 123, undefined]) {
 				expect(() =>
 					parseOllamaChatResponse({
+						...validBase,
 						message: {
 							role: "assistant",
+							content: "",
 							tool_calls: [{ function: { name: "test", arguments: args } }],
 						},
 					}),
@@ -671,6 +1002,78 @@ describe("OllamaProvider", () => {
 					"Ollama response invalid: message.tool_calls[0].function.arguments must be an object",
 				);
 			}
+		});
+	});
+
+	describe("HTTP status mapping", () => {
+		it.each([
+			[400, "api", false],
+			[401, "api", false],
+			[403, "api", false],
+			[404, "model_not_found", false],
+			[429, "rate_limit", true],
+			[500, "server", true],
+			[503, "server", true],
+		])(
+			"maps HTTP %i to %s (retryable: %s)",
+			async (status, kind, retryable) => {
+				const mockFetch = vi
+					.fn()
+					.mockResolvedValue(
+						createMockResponse({ error: "boom" }, status, "Status"),
+					);
+				const provider = new OllamaProvider({
+					...defaultOptions,
+					fetch: mockFetch as unknown as typeof fetch,
+				});
+
+				await expect(provider.generateResponse([], [])).rejects.toMatchObject({
+					kind,
+					retryable,
+				});
+			},
+		);
+
+		it("includes the Ollama error detail in the message", async () => {
+			const mockFetch = vi
+				.fn()
+				.mockResolvedValue(
+					createMockResponse(
+						{ error: "out of memory" },
+						500,
+						"Internal Server Error",
+					),
+				);
+			const provider = new OllamaProvider({
+				...defaultOptions,
+				fetch: mockFetch as unknown as typeof fetch,
+			});
+
+			await expect(provider.generateResponse([], [])).rejects.toMatchObject({
+				kind: "server",
+				message: "Ollama returned 500: out of memory",
+			});
+		});
+
+		it("omits the detail when the error body is not JSON", async () => {
+			const mockFetch = vi
+				.fn()
+				.mockResolvedValue(
+					createMockResponse(
+						"plain text failure",
+						500,
+						"Internal Server Error",
+					),
+				);
+			const provider = new OllamaProvider({
+				...defaultOptions,
+				fetch: mockFetch as unknown as typeof fetch,
+			});
+
+			await expect(provider.generateResponse([], [])).rejects.toMatchObject({
+				kind: "server",
+				message: "Ollama returned 500",
+			});
 		});
 	});
 });

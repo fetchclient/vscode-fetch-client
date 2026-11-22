@@ -1,17 +1,15 @@
 import { randomUUID } from "crypto";
 import {
 	AgentMessage,
-	ToolDefinition,
-	LLMProviderError,
 	IToolFailure,
-	LLMErrorKind,
+	LLMProviderError,
+	ToolDefinition,
 } from "../../../types/agent-contracts";
 import type {
 	ILLMProvider,
 	LLMAssistantOutput,
 	LLMToolRequest,
 } from "../../../types/agent-dependencies";
-import {} from "../../../types/agent-dependencies";
 import type {
 	IOllamaChatMessage,
 	IOllamaChatRequest,
@@ -19,18 +17,34 @@ import type {
 	IOllamaToolCall,
 	IOllamaToolDefinition,
 } from "./ollama.types";
+import {
+	HttpClientError,
+	IHttpStatusError,
+	jsonBody,
+	post,
+} from "../../../core/http";
+
+/** Local models can be slow, especially on first load. */
+const DEFAULT_OLLAMA_TIMEOUT_MS = 60_000;
 
 export interface OllamaProviderOptions {
 	readonly baseUrl: string;
 	readonly model: string;
+	readonly timeoutMs?: number;
 	readonly fetch?: typeof fetch;
 }
 
 export class OllamaProvider implements ILLMProvider {
-	private readonly fetchFn: typeof fetch;
+	private readonly chatUrl: string;
+	private readonly model: string;
+	private readonly timeoutMs: number;
+	private readonly fetchFn?: typeof fetch;
 
-	constructor(private readonly options: OllamaProviderOptions) {
-		this.fetchFn = options.fetch ?? fetch;
+	constructor(options: OllamaProviderOptions) {
+		this.chatUrl = `${options.baseUrl.replace(/\/+$/, "")}/api/chat`;
+		this.model = options.model;
+		this.timeoutMs = options.timeoutMs ?? DEFAULT_OLLAMA_TIMEOUT_MS;
+		this.fetchFn = options.fetch;
 	}
 
 	async generateResponse(
@@ -38,112 +52,120 @@ export class OllamaProvider implements ILLMProvider {
 		tools: readonly ToolDefinition[],
 		signal?: AbortSignal,
 	): Promise<LLMAssistantOutput> {
-		// Map messages to Ollama's chat format and Map tools to Ollama's tool format
+		let ollamaMessages: IOllamaChatMessage[];
+		try {
+			ollamaMessages = messages.map(toOllamaMessage);
+		} catch (cause) {
+			throw new LLMProviderError(
+				"invalid_request",
+				"Could not prepare messages",
+				{
+					cause,
+				},
+			);
+		}
+
 		const body: IOllamaChatRequest = {
-			model: this.options.model,
-			messages: messages.map(toOllamaMessage),
+			model: this.model,
+			messages: ollamaMessages,
 			stream: false,
-			...(tools.length > 0 && { tools: tools.map(toOllamaTool) }),
+			...(tools.length > 0 ? { tools: tools.map(toOllamaTool) } : {}),
 		};
 
-		// POST to `${baseUrl}/api/chat` with stream: false, passing `signal`.
-		const response = await this.send(body, signal);
-		const data = parseOllamaChatResponse(await this.readJson(response, signal));
+		const result = await post<IOllamaChatResponse>(
+			this.chatUrl,
+			jsonBody(body),
+			{
+				signal,
+				timeoutMs: this.timeoutMs,
+				fetch: this.fetchFn,
+				parse: parseOllamaChatResponse,
+			},
+		);
 
-		// Map the response to { role: "assistant", content, toolCalls? }.
+		if (result.ok === false) {
+			throw toProviderError(result.error);
+		}
+
+		const { message } = result.data;
 		return {
 			role: "assistant",
-			content: data.message.content ?? "",
-			toolCalls: toToolRequests(data.message.tool_calls),
+			content: message.content ?? "",
+			toolCalls: toToolRequests(message.tool_calls),
 		};
 	}
+}
 
-	private async send(
-		body: IOllamaChatRequest,
-		signal?: AbortSignal,
-	): Promise<Response> {
-		let response: Response;
-		try {
-			const baseUrl = this.options.baseUrl.replace(/\/+$/, "");
-			response = await this.fetchFn(`${baseUrl}/api/chat`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(body),
-				signal,
+// --- error mapping ---
+function toProviderError(error: HttpClientError): LLMProviderError {
+	switch (error.kind) {
+		case "timeout":
+			return new LLMProviderError(
+				"timeout",
+				`Ollama did not respond within ${error.timeoutMs} ms`,
+			);
+
+		case "aborted":
+			return new LLMProviderError("aborted", "Request aborted");
+
+		case "network":
+			return new LLMProviderError("network", "Could not reach Ollama", {
+				cause: error.cause,
 			});
-		} catch (err) {
-			throw toFetchError(err, signal);
-		}
 
-		if (!response.ok) {
-			const kind = getHttpErrorKind(response.status);
+		case "parse":
+			return new LLMProviderError("invalid_response", error.message);
 
-			let detail = "";
+		case "request":
+			return new LLMProviderError("unknown", "Could not build request");
 
-			try {
-				const body: unknown = await response.json();
-
-				if (isRecord(body) && typeof body.error === "string") {
-					detail = `: ${body.error}`;
-				}
-			} catch {
-				// Preserve the HTTP status as the primary error.
-			}
-
-			throw new LLMProviderError(
-				kind,
-				`Ollama returned ${response.status} ${response.statusText}${detail}`,
-			);
-		}
-		return response;
-	}
-
-	private async readJson(
-		response: Response,
-		signal?: AbortSignal,
-	): Promise<IOllamaChatResponse> {
-		try {
-			return (await response.json()) as IOllamaChatResponse;
-		} catch (err) {
-			if (signal?.aborted) {
-				throw new LLMProviderError("aborted", "Request aborted", {
-					cause: err,
-				});
-			}
-			throw new LLMProviderError(
-				"invalid_response",
-				"Ollama returned non-JSON body",
-				{ cause: err },
-			);
-		}
+		case "http":
+			return httpStatusToError(error);
 	}
 }
 
-function getHttpErrorKind(status: number): LLMErrorKind {
-	if (status === 429) {
-		return "rate_limit";
+function httpStatusToError(error: IHttpStatusError): LLMProviderError {
+	const detail =
+		isRecord(error.body) && typeof error.body.error === "string"
+			? `: ${error.body.error}`
+			: "";
+	const message = `Ollama returned ${error.status}${detail}`;
+
+	if (error.status === 429) {
+		return new LLMProviderError("rate_limit", message);
 	}
-	return "unknown";
+	if (error.status >= 500) {
+		return new LLMProviderError("server", message);
+	}
+	if (error.status === 404) {
+		return new LLMProviderError("model_not_found", message);
+	}
+	return new LLMProviderError("api", message);
 }
 
-// --- pure mapping functions (easy to unit test, no network) ---
+// --- pure mapping functions (no network) ---
+
 function toOllamaMessage(msg: AgentMessage): IOllamaChatMessage {
 	switch (msg.role) {
 		case "system":
 		case "user":
 			return { role: msg.role, content: msg.content };
+
 		case "assistant":
 			return {
 				role: "assistant",
 				content: msg.content,
-				...(msg.toolCalls?.length && {
-					tool_calls: msg.toolCalls.map(
-						(c): IOllamaToolCall => ({
-							function: { name: c.toolName, arguments: c.arguments },
-						}),
-					),
-				}),
+				...(msg.toolCalls?.length
+					? {
+							tool_calls: msg.toolCalls.map(
+								(c): IOllamaToolCall => ({
+									function: { name: c.toolName, arguments: c.arguments },
+								}),
+							),
+						}
+					: {}),
 			};
+
 		case "tool": {
 			const r = msg.toolResult;
 			const payload = r.success
@@ -178,29 +200,49 @@ function toToolRequests(
 	}));
 }
 
-function toFetchError(err: unknown, signal?: AbortSignal): LLMProviderError {
-	if (signal?.aborted || (err instanceof Error && err.name === "AbortError")) {
-		return new LLMProviderError("aborted", "Request aborted", { cause: err });
+// --- response validation (runs inside the client's parse hook) ---
+export function parseOllamaChatResponse(data: unknown): IOllamaChatResponse {
+	if (!isRecord(data)) {
+		fail("body must be an object");
 	}
 
-	return new LLMProviderError("network", "Could not reach Ollama", {
-		cause: err,
-	});
-}
+	if (typeof data.model !== "string" || data.model.trim() === "") {
+		fail("model must be a non-empty string");
+	}
 
-function fail(message: string): never {
-	throw new LLMProviderError(
-		"invalid_response",
-		`Ollama response invalid: ${message}`,
-	);
-}
+	if (typeof data.done !== "boolean") {
+		fail("done must be a boolean");
+	}
+	if (data.done !== true) {
+		fail("done must be true for a non-streaming response");
+	}
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-	return typeof v === "object" && v !== null && !Array.isArray(v);
+	const message = data.message;
+	if (!isRecord(message)) {
+		fail("message must be an object");
+	}
+
+	if (message.role !== "assistant") {
+		fail(`message.role must be "assistant"`);
+	}
+
+	if (typeof message.content !== "string") {
+		fail("message.content must be a string");
+	}
+
+	if (message.tool_calls !== undefined) {
+		if (!Array.isArray(message.tool_calls)) {
+			fail("message.tool_calls must be an array when present");
+		}
+		message.tool_calls.forEach((call, i) => validateToolCall(call, i));
+	}
+
+	return data as unknown as IOllamaChatResponse;
 }
 
 function validateToolCall(call: unknown, index: number): void {
 	const where = `message.tool_calls[${index}]`;
+
 	if (!isRecord(call)) {
 		fail(`${where} must be an object`);
 	}
@@ -219,31 +261,26 @@ function validateToolCall(call: unknown, index: number): void {
 	}
 }
 
-export function parseOllamaChatResponse(data: unknown): IOllamaChatResponse {
-	if (!isRecord(data)) {
-		fail("body must be an object");
-	}
+/**
+ * Thrown inside the parse hook. The client turns it into kind "parse",
+ * which toProviderError maps to "invalid_response" exactly once.
+ */
+function fail(message: string): never {
+	throw new Error(`Ollama response invalid: ${message}`);
+}
 
-	const message = data.message;
-	if (!isRecord(message)) {
-		fail("message must be an object");
-	}
+function isRecord(v: unknown): v is Record<string, unknown> {
+	return typeof v === "object" && v !== null && !Array.isArray(v);
+}
 
-	if (message.role !== "assistant") {
-		fail(`message.role must be "assistant"`);
+function serializeToolPayload(payload: unknown): string {
+	try {
+		return JSON.stringify(payload ?? null);
+	} catch (cause) {
+		throw new LLMProviderError(
+			"invalid_request",
+			"Tool result could not be serialized for the model",
+			{ cause },
+		);
 	}
-
-	if (message.content !== undefined && typeof message.content !== "string") {
-		fail("message.content must be a string when present");
-	}
-
-	if (message.tool_calls !== undefined) {
-		if (!Array.isArray(message.tool_calls)) {
-			fail("message.tool_calls must be an array when present");
-		}
-		message.tool_calls.forEach((call, i) => validateToolCall(call, i));
-	}
-
-	// Validated above, so the cast is safe.
-	return data as unknown as IOllamaChatResponse;
 }

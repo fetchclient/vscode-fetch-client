@@ -10,7 +10,7 @@ export const ok = <T>(data: T): Ok<T> => ({ ok: true, data });
 export const err = <E>(error: E): Err<E> => ({ ok: false, error });
 
 /** Server answered, but with a non-2xx status (404, 500, ...). */
-export interface HttpStatusError {
+export interface IHttpStatusError {
 	kind: "http";
 	status: number;
 	statusText: string;
@@ -19,43 +19,43 @@ export interface HttpStatusError {
 }
 
 /** Request never got a response: DNS failure, connection refused/reset, offline. */
-export interface NetworkError {
+export interface INetworkError {
 	kind: "network";
 	message: string;
 	cause?: unknown;
 }
 
 /** Our own timer fired before the response (headers + body) finished. */
-export interface TimeoutError {
+export interface ITimeoutError {
 	kind: "timeout";
 	timeoutMs: number;
 }
 
 /** The caller aborted via their own AbortSignal. */
-export interface AbortedError {
+export interface IAbortedError {
 	kind: "aborted";
 }
 
 /** Response was 2xx but the body was not valid JSON or failed validation. */
-export interface ParseError {
+export interface IParseError {
 	kind: "parse";
 	message: string;
 }
 
 /** The outgoing request could not be prepared or serialized. */
-export interface RequestError {
+export interface IRequestError {
 	kind: "request";
 	message: string;
 	cause?: unknown;
 }
 
 export type HttpClientError =
-	| HttpStatusError
-	| NetworkError
-	| TimeoutError
-	| AbortedError
-	| ParseError
-	| RequestError;
+	| IHttpStatusError
+	| INetworkError
+	| ITimeoutError
+	| IAbortedError
+	| IParseError
+	| IRequestError;
 
 /** Explicit body types. Each one decides its own encoding and Content-Type. */
 export type RequestBody =
@@ -79,7 +79,7 @@ export const formBody = (data: FormData): RequestBody => ({
 	data,
 });
 
-export interface RequestOptions<T> {
+export interface IRequestOptions<T> {
 	method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 	headers?: Record<string, string>;
 	body?: RequestBody;
@@ -93,6 +93,8 @@ export interface RequestOptions<T> {
 	 * without runtime validation.
 	 */
 	parse?: (raw: unknown) => T;
+	/** Injectable fetch, for tests. Defaults to the global fetch. */
+	fetch?: typeof fetch;
 }
 
 export const DEFAULT_TIMEOUT_MS = 5000;
