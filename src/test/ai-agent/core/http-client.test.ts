@@ -241,7 +241,10 @@ describe("HTTP client", () => {
 			const fetchMock = vi.fn();
 			vi.stubGlobal("fetch", fetchMock);
 
-			const result = await post("https://example.test/data", jsonBody(circular));
+			const result = await post(
+				"https://example.test/data",
+				jsonBody(circular),
+			);
 
 			expect(result.ok).toBe(false);
 			if (!result.ok) {
@@ -254,7 +257,10 @@ describe("HTTP client", () => {
 			const fetchMock = vi.fn();
 			vi.stubGlobal("fetch", fetchMock);
 
-			const result = await post("https://example.test/data", jsonBody(undefined));
+			const result = await post(
+				"https://example.test/data",
+				jsonBody(undefined),
+			);
 
 			expect(result).toEqual({
 				ok: false,
@@ -369,11 +375,14 @@ describe("HTTP client", () => {
 				vi.fn().mockResolvedValue(jsonResponse({ id: "bad" })),
 			);
 
-			const result = await request<{ id: number }>("https://example.test/user", {
-				parse: () => {
-					throw new Error("id must be a number");
+			const result = await request<{ id: number }>(
+				"https://example.test/user",
+				{
+					parse: () => {
+						throw new Error("id must be a number");
+					},
 				},
-			});
+			);
 
 			expect(result).toEqual({
 				ok: false,
@@ -387,11 +396,14 @@ describe("HTTP client", () => {
 				vi.fn().mockResolvedValue(jsonResponse({ id: "bad" })),
 			);
 
-			const result = await request<{ id: number }>("https://example.test/user", {
-				parse: () => {
-					throw "invalid custom exception";
+			const result = await request<{ id: number }>(
+				"https://example.test/user",
+				{
+					parse: () => {
+						throw "invalid custom exception";
+					},
 				},
-			});
+			);
 
 			expect(result).toEqual({
 				ok: false,
@@ -546,7 +558,9 @@ describe("HTTP client", () => {
 			).rejects.toBeInstanceOf(RangeError);
 
 			await expect(
-				request("https://example.test", { timeoutMs: Number.POSITIVE_INFINITY }),
+				request("https://example.test", {
+					timeoutMs: Number.POSITIVE_INFINITY,
+				}),
 			).rejects.toBeInstanceOf(RangeError);
 
 			await expect(
