@@ -4,15 +4,19 @@ import {
 	responseTypes,
 } from "../../../../fetch-client-core/consts/requestTypes.consts";
 import { IVariable } from "../../../../fetch-client-core/types/sidebar.types";
+import {
+	parseSecretKey,
+	SecretProvider,
+} from "../../../../fetch-client-core/utils/secretMangerService/secretRef";
 import PanelLayout from "../../Common/Layout/panelLayout";
 import React, { useEffect, useMemo, useState } from "react";
 import vscode from "../../Common/vscodeAPI";
 
-const AWS_KEY_REGEX = /^aws:([^:{}]+):([^:{}]+)(?::([^:{}]+))?$/;
-
 interface AwsKeyRef {
 	variableId: string;
 	variableName: string;
+	provider: SecretProvider;
+	/** AWS profile or Azure Key Vault name. */
 	profile: string;
 	secretName: string;
 	jsonProperty?: string;
@@ -20,12 +24,14 @@ interface AwsKeyRef {
 
 interface ResultRow extends AwsKeyRef {
 	ok?: boolean;
-	stage?: "profile" | "secret";
+	stage?: "profile" | "vault" | "secret";
 	error?: string;
 	cached?: boolean;
 }
 
 type ResultAction = "check" | "cache" | "clear";
+
+const scopeKey = (r: AwsKeyRef) => `${r.provider}::${r.profile}`;
 
 function extractAwsRefs(vars: IVariable[]): AwsKeyRef[] {
 	const refs: AwsKeyRef[] = [];
@@ -42,14 +48,15 @@ function extractAwsRefs(vars: IVariable[]): AwsKeyRef[] {
 			if (row.isChecked === false) {
 				continue;
 			}
-			const m = AWS_KEY_REGEX.exec((row.key ?? "").trim());
+			const m = parseSecretKey(row.key);
 			if (m) {
 				refs.push({
 					variableId: v.id,
 					variableName: v.name,
-					profile: m[1],
-					secretName: m[2],
-					jsonProperty: m[3],
+					provider: m.provider,
+					profile: m.scope,
+					secretName: m.secretName,
+					jsonProperty: m.jsonProperty,
 				});
 			}
 		}
@@ -93,18 +100,21 @@ const SecretMangerPanel = () => {
 
 	const allRefs = useMemo(() => extractAwsRefs(variables), [variables]);
 
-	// First dropdown: distinct AWS profiles found across all variables
-	const profileOptions = useMemo(
-		() => Array.from(new Set(allRefs.map((r) => r.profile))),
-		[allRefs],
-	);
+	// First dropdown: distinct provider/scope pairs found across all variables
+	const profileOptions = useMemo(() => {
+		const seen = new Map<string, string>();
+		allRefs.forEach((r) =>
+			seen.set(scopeKey(r), `${r.provider.toUpperCase()}: ${r.profile}`),
+		);
+		return Array.from(seen, ([value, label]) => ({ value, label }));
+	}, [allRefs]);
 
 	// Keys associated with the selected profile (or all, if "all" is selected)
 	const associatedRefs = useMemo(() => {
 		if (selectedProfile === "all") {
 			return allRefs;
 		}
-		return allRefs.filter((r) => r.profile === selectedProfile);
+		return allRefs.filter((r) => scopeKey(r) === selectedProfile);
 	}, [allRefs, selectedProfile]);
 
 	function onCheckClick() {
@@ -155,16 +165,16 @@ const SecretMangerPanel = () => {
 		}
 		return (
 			<div className="aws-selectors-row">
-				<span className="addto-label">Profile</span>
+				<span className="addto-label">Profile / Vault</span>
 				<select
 					className="preReq-col-select export-type-select"
 					value={selectedProfile}
 					onChange={(e) => setSelectedProfile(e.target.value)}
 				>
-					<option value="all">-- All profiles --</option>
+					<option value="all">-- All --</option>
 					{profileOptions.map((p) => (
-						<option key={p} value={p}>
-							{p}
+						<option key={p.value} value={p.value}>
+							{p.label}
 						</option>
 					))}
 				</select>
@@ -189,16 +199,18 @@ const SecretMangerPanel = () => {
 					<thead>
 						<tr>
 							<td>Variable</td>
-							<td>Profile</td>
+							<td>Provider</td>
+							<td>Profile / Vault</td>
 							<td>Secret</td>
 						</tr>
 					</thead>
 					<tbody>
 						{associatedRefs.map((r, i) => (
 							<tr
-								key={`${r.variableId}-${r.profile}-${r.secretName}-${r.jsonProperty ?? ""}-${i}`}
+								key={`${r.variableId}-${r.provider}-${r.profile}-${r.secretName}-${r.jsonProperty ?? ""}-${i}`}
 							>
 								<td>{r.variableName}</td>
+								<td>{r.provider.toUpperCase()}</td>
 								<td>{r.profile}</td>
 								<td>
 									{r.secretName}
@@ -222,7 +234,8 @@ const SecretMangerPanel = () => {
 					<thead>
 						<tr>
 							<td>Variable</td>
-							<td>Profile</td>
+							<td>Provider</td>
+							<td>Profile / Vault</td>
 							<td>Secret</td>
 							<td>Status</td>
 							<td>Detail</td>
@@ -232,6 +245,7 @@ const SecretMangerPanel = () => {
 						{results.map((r, i) => (
 							<tr key={i}>
 								<td>{r.variableName}</td>
+								<td>{r.provider?.toUpperCase()}</td>
 								<td>{r.profile}</td>
 								<td>
 									{r.secretName}
@@ -279,7 +293,8 @@ const SecretMangerPanel = () => {
 		if (!allRefs.length && !loading) {
 			return (
 				<div className="aws-empty-state">
-					No variables use the {"{{aws:profile:secret:property}}"} format yet.
+					No variables use the {"{{aws:profile:secret:property}}"} or{" "}
+					{"{{azure:vault:secret:property}}"} format yet.
 				</div>
 			);
 		}

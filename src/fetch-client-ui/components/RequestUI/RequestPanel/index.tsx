@@ -18,13 +18,15 @@ import { SendRequest } from "./common";
 import { TextEditor } from "../../Common/TextEditor/TextEditor";
 import { useDispatch, useSelector } from "react-redux";
 import { v4 as uuidv4 } from "uuid";
-import React, { useEffect, useState } from "react";
+import { replaceDataWithVariable } from "../../../../fetch-client-core/helpers/variable.helper";
+import React, { useEffect, useMemo, useState } from "react";
 import vscode from "../../Common/vscodeAPI";
 
 export const RequestPanel = () => {
 	const dispatch = useDispatch<AppDispatch>();
 
 	const [newReq, setNewReq] = useState(false);
+	const [showResolved, setShowResolved] = useState(false);
 
 	const requestData = useSelector((state: IRootState) => state.requestData);
 	const responseData = useSelector((state: IRootState) => state.responseData);
@@ -220,6 +222,26 @@ export const RequestPanel = () => {
 		return false;
 	};
 
+	const hasVariables = /{{[^}]+}}/.test(requestData.url);
+
+	const resolvedUrl = useMemo(() => {
+		const varMap: Record<string, string> = {};
+		selectedVariable.data.forEach((item) => {
+			if (item.isChecked !== false) {
+				varMap[item.key] = item.value;
+			}
+		});
+		return replaceDataWithVariable(requestData.url, varMap);
+	}, [requestData.url, selectedVariable.data]);
+
+	const unresolvedVars = useMemo(
+		() =>
+			(resolvedUrl.match(/{{[^}#][^}]*}}/g) ?? []).map((v) =>
+				v.slice(2, -2).trim(),
+			),
+		[resolvedUrl],
+	);
+
 	const handleKeypress = (charCode: number) => {
 		if (charCode === 13 && isEnabled()) {
 			onSendClick();
@@ -259,6 +281,17 @@ export const RequestPanel = () => {
 						/>
 					)}
 				</div>
+				{hasVariables && (
+					<button
+						type="button"
+						className={`resolved-toggle${showResolved ? " active" : ""}`}
+						title={showResolved ? "Hide resolved URL" : "Show resolved URL"}
+						aria-pressed={showResolved}
+						onClick={() => setShowResolved((prev) => !prev)}
+					>
+						{showResolved ? "\u{1F53C}" : "\u2139\uFE0F"}
+					</button>
+				)}
 				<div className="request-send-panel">
 					<button
 						type="submit"
@@ -268,6 +301,31 @@ export const RequestPanel = () => {
 					>
 						Send <span aria-hidden="true">➤</span>
 					</button>
+				</div>
+			</div>
+			<div
+				className={`resolved-slide${hasVariables && showResolved ? " open" : ""}`}
+			>
+				<div className="resolved-slide-inner">
+					<div className="request-resolved-url" aria-live="polite">
+						<code className="resolved-value" title={resolvedUrl}>
+							{resolvedUrl}
+						</code>
+						{unresolvedVars.length > 0 ? (
+							<span className="resolved-warning">
+								⚠ Unresolved: {unresolvedVars.join(", ")}
+							</span>
+						) : (
+							<button
+								type="button"
+								className="resolved-copy"
+								title="Copy resolved URL"
+								onClick={() => navigator.clipboard.writeText(resolvedUrl)}
+							>
+								📋
+							</button>
+						)}
+					</div>
 				</div>
 			</div>
 		</div>

@@ -91,8 +91,29 @@ const commonConfig = (webpackEnv) => {
  * @param {'development' | 'production' | 'none'} webpackEnv
  */
 const extensionConfig = (webpackEnv) => {
+	const base = commonConfig(webpackEnv);
 	return {
-		...commonConfig(webpackEnv),
+		...base,
+		module: {
+			rules: [
+				{
+					oneOf: base.module.rules[0].oneOf.map((rule) =>
+						// commonjs output would turn import() into a static require
+						rule.loader && rule.loader.includes("ts-loader")
+							? {
+									...rule,
+									options: {
+										compilerOptions: {
+											module: "esnext",
+											moduleResolution: "node",
+										},
+									},
+								}
+							: rule,
+					),
+				},
+			],
+		},
 		target: "node",
 		entry: "./src/extension.ts",
 		output: {

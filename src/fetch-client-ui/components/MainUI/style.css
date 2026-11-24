@@ -1,5 +1,37 @@
+:root {
+	--accordion-header-h: 30px;
+	--gutter-hit: 10px;
+}
+
+/* Keep the checkbox focusable but invisible */
 .accordion > input[name="collapse"] {
-	display: none;
+	position: absolute;
+	opacity: 0;
+	width: 1px;
+	height: 1px;
+	pointer-events: none;
+}
+
+.accordion > input[name="collapse"]:focus-visible ~ .handle .accordion-title {
+	outline: 2px solid var(--vscode-focusBorder);
+	outline-offset: -2px;
+}
+
+.accordion {
+	position: relative;
+	width: calc(100% - 2px);
+	min-width: 0;
+	box-sizing: border-box;
+	overflow: hidden;
+}
+
+.accordion .accordion-title,
+.accordion .content,
+.accordion .handle {
+	box-sizing: border-box;
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
 }
 
 .accordion .accordion-title,
@@ -8,26 +40,31 @@
 }
 
 .accordion .content {
-	border: 1px solid;
+	border: 1px solid var(--border-color);
 	height: 0;
 	overflow: hidden;
-	transition: 0.5s;
+	/* Removes collapsed content from tab order and accessibility tree */
+	visibility: hidden;
+	transition:
+		height 0.2s,
+		visibility 0s 0.2s;
 }
 
 .accordion > input[name="collapse"]:checked ~ .content {
-	height: calc(100% - 30px);
-	transition: height 0.5s;
+	height: calc(100% - var(--accordion-header-h));
+	visibility: visible;
+	transition: height 0.2s;
 }
 
 .accordion .accordion-title {
-	display: block;
+	display: flex;
+	align-items: center;
 }
 
 /* For Desktop */
 @media only screen and (min-width: 620px) {
 	.accordion > input[name="collapse"]:checked ~ .content {
-		/* height: 93%; */
-		height: calc(100% - 30px);
+		height: calc(100% - var(--accordion-header-h));
 	}
 }
 
@@ -37,48 +74,48 @@
 
 .accordion > input[name="collapse"]:checked ~ .content {
 	border-top: 0;
-	transition: 0.3s;
 }
 
 .accordion .handle {
 	margin: 0;
 	font-size: 16px;
-	border: 1px solid;
+	border: 1px solid var(--border-color);
 }
 
 .accordion .accordion-title {
-	background: #0a95ff;
-	color: #fff;
+	background: var(--vscode-sideBarSectionHeader-background);
+	color: var(--vscode-sideBarSectionHeader-foreground);
 	cursor: pointer;
 	font-weight: normal;
 	padding: 3px 3px 3px 10px;
 	user-select: none;
 }
 
-.accordion .accordion-title:hover,
-.accordion .accordion-title:focus {
-	/* background: #252525; */
-	background: #194880;
+.accordion .accordion-title:hover {
+	background: var(--vscode-list-hoverBackground);
 }
 
 .accordion .handle .accordion-title:before {
-	content: "+";
+	content: "";
 	display: inline-block;
-	font-size: 1em;
-	line-height: 1.556em;
+	width: 6px;
+	height: 6px;
+	flex: none;
 	margin-right: 10px;
-	transition: 0.4s;
+	margin-top: -3px;
+	border-right: 2px solid currentColor;
+	border-bottom: 2px solid currentColor;
+	transform: rotate(-45deg);
+	transition: transform 0.15s;
 }
 
 .accordion > input[name="collapse"]:checked ~ .handle .accordion-title:before {
-	content: "-";
-	transform: rotate(180deg);
-	transform-origin: center;
-	transition: 0.4s;
+	transform: rotate(45deg);
 }
 
 .accordion > input[name="collapse"]:checked ~ .handle .accordion-title {
-	background: #194880;
+	background: var(--vscode-list-activeSelectionBackground);
+	color: var(--vscode-list-activeSelectionForeground);
 }
 
 .half-height {
@@ -87,12 +124,11 @@
 }
 
 .full-height {
-	/* height: calc(100% - 40px); */
-	height: calc(100% - 30px);
+	height: calc(100% - var(--accordion-header-h));
 }
 
 .zero-height {
-	height: 30px;
+	height: var(--accordion-header-h);
 }
 
 .no-border {
@@ -113,9 +149,28 @@
 }
 
 .gutter {
+	position: relative;
 	background-color: var(--border-color);
 	background-repeat: no-repeat;
 	background-position: 50%;
+	transition: background-color 0.15s;
+}
+
+/* Wider invisible grab area */
+.gutter::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+}
+
+.gutter.gutter-horizontal::after {
+	left: calc(var(--gutter-hit) / -2);
+	right: calc(var(--gutter-hit) / -2);
+}
+
+.gutter.gutter-vertical::after {
+	top: calc(var(--gutter-hit) / -2);
+	bottom: calc(var(--gutter-hit) / -2);
 }
 
 .gutter.gutter-vertical {
@@ -126,25 +181,29 @@
 	cursor: ew-resize;
 }
 
-.gutter.gutter-horizontal:hover {
-	background-color: var(--button-background-color);
-	width: 3px !important;
-}
-
-.gutter.gutter-vertical:hover {
-	background-color: var(--button-background-color);
+.gutter:hover,
+.gutter:active {
+	background-color: var(
+		--vscode-sash-hoverBorder,
+		var(--button-background-color)
+	);
 }
 
 .save-text {
 	position: absolute;
-	top: 190px;
-	left: 25%;
+	top: 16px;
+	left: 50%;
 	transform: translateX(-50%);
 	font-size: 15px;
-	color: #2fb12f;
+	color: var(--vscode-testing-iconPassed, #2fb12f);
 	padding: 7px;
 	border-radius: 6px;
-	background: var(--list-hover-background-color);
+	pointer-events: none;
+	box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+	background: var(
+		--vscode-editorWidget-background,
+		var(--list-hover-background-color)
+	);
 	opacity: 0.97;
 	z-index: 100;
 	font-weight: bold;
@@ -161,5 +220,12 @@
 
 .save-text-horizontal {
 	left: 50% !important;
-	top: 50% !important;
+	top: 16px !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.accordion *,
+	.gutter {
+		transition: none !important;
+	}
 }

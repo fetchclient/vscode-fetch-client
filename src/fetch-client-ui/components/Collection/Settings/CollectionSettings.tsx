@@ -22,7 +22,7 @@ import {
 } from "../../../../fetch-client-core/consts/requestTypes.consts";
 import { SettingsType } from "../../../../fetch-client-core/consts/common.consts";
 import { useDispatch, useSelector } from "react-redux";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import vscode from "../../Common/vscodeAPI";
 import PanelLayout from "../../Common/Layout/panelLayout";
 
@@ -180,6 +180,21 @@ const CollectionSettings = () => {
 			data: { colId: colId, folderId: folderId, settings: settings },
 		});
 	}
+
+	// Keep the latest handler for the Ctrl+S listener.
+	const submitRef = useRef(onSubmitClick);
+	submitRef.current = onSubmitClick;
+
+	useEffect(() => {
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.ctrlKey && (e.key === "S" || e.key === "s")) {
+				e.preventDefault();
+				submitRef.current();
+			}
+		};
+		document.addEventListener("keydown", handleKeyDown);
+		return () => document.removeEventListener("keydown", handleKeyDown);
+	}, []);
 
 	function renderHeader() {
 		return (

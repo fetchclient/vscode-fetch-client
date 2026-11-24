@@ -58,7 +58,7 @@ export const ReponsePanel = (props: ResponsePanelProps) => {
 			case "aiprompt":
 				return (
 					<React.Suspense fallback={<div>loading...</div>}>
-						<AIPromptGenerator />
+						<AIPromptGenerator isVerticalLayout={props.isVerticalLayout} />
 					</React.Suspense>
 				);
 			case "jsonschema":

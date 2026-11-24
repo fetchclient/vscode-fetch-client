@@ -22,6 +22,8 @@ import {
 	responseTypes,
 } from "../../../../fetch-client-core/consts/requestTypes.consts";
 import vscode from "../../Common/vscodeAPI";
+import { ResponseActions } from "../../ResponseUI/redux";
+import { executeTests } from "../../../../fetch-client-core/helpers/tests.helper";
 
 const ROW_CHUNK_SIZE = 8;
 
@@ -31,9 +33,14 @@ export const TestPanel = () => {
 	const { tests, method, url } = useSelector(
 		(state: IRootState) => state.requestData,
 	);
+	const requestData = useSelector((state: IRootState) => state.requestData);
+	const { colId } = useSelector((state: IRootState) => state.reqColData);
 	const { selectedVariable } = useSelector(
 		(state: IRootState) => state.variableData,
 	);
+
+	const responseData = useSelector((state: IRootState) => state.responseData);
+	const [imported, setImported] = useState(false);
 
 	const [editingField, setEditingField] = useState<{
 		index: number;
@@ -89,6 +96,7 @@ export const TestPanel = () => {
 				]),
 			);
 
+			setImported(true);
 			vscode.postMessage({
 				type: requestTypes.showMessageRequest,
 				data:
@@ -105,6 +113,43 @@ export const TestPanel = () => {
 
 	function onImportTestCases() {
 		vscode.postMessage({ type: requestTypes.importTestCasesRequest });
+	}
+
+	function onDeleteAll() {
+		const emptyTests: ITest[] = [
+			{ parameter: "", action: "", expectedValue: "", customParameter: "" },
+		];
+		dispatch(Actions.SetTestAction(emptyTests));
+		dispatch(ResponseActions.SetTestResultAction([]));
+		setImported(false);
+
+		// Only persist when the request is already saved.
+		if (requestData.name) {
+			vscode.postMessage({
+				type: requestTypes.saveRequest,
+				data: {
+					reqData: { ...requestData, tests: emptyTests },
+					isNew: false,
+					colId: colId || undefined,
+				},
+			});
+		}
+	}
+
+	function onRunImportedTests() {
+		if (responseData.response.status === 0) {
+			vscode.postMessage({
+				type: requestTypes.showMessageRequest,
+				data: "Send the request first to get a response.",
+			});
+			return;
+		}
+		const testResults = executeTests(
+			tests,
+			responseData,
+			selectedVariable.data,
+		);
+		dispatch(ResponseActions.SetTestResultAction(testResults));
 	}
 
 	function saveValueEditor(value: string) {
@@ -345,6 +390,24 @@ export const TestPanel = () => {
 					onClick={onImportTestCases}
 				>
 					📥
+				</button>
+				<button
+					className="test-import-button"
+					title="Run test cases against the current response"
+					aria-label="Run test cases against the current response"
+					disabled={!imported}
+					onClick={onRunImportedTests}
+				>
+					▶️
+				</button>
+				<button
+					className="test-import-button"
+					title="Delete all test cases"
+					aria-label="Delete all test cases"
+					disabled={tests.length <= 1}
+					onClick={onDeleteAll}
+				>
+					⛔
 				</button>
 			</div>
 			<table className="test-table">

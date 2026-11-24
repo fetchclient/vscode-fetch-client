@@ -7,9 +7,10 @@ import {
 	responseTypes,
 } from "../../../fetch-client-core/consts/requestTypes.consts";
 import { Table } from "../Common/Table/Table";
+import { parseSecretKey } from "../../../fetch-client-core/utils/secretMangerService/secretRef";
 import { v4 as uuidv4 } from "uuid";
 import PanelLayout from "../Common/Layout/panelLayout";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import vscode from "../Common/vscodeAPI";
 
 export interface IVariableProps {
@@ -40,7 +41,11 @@ const Variables = (_props: IVariableProps) => {
 
 		let localTable = addValue(event.target.value, index, isKey);
 
-		if (localTable[index].key && localTable[index].value) {
+		// Cloud secret keys (aws:/azure:) have no typed value; it is fetched at runtime.
+		if (
+			localTable[index].key &&
+			(localTable[index].value || parseSecretKey(localTable[index].key))
+		) {
 			localTable.push(newRow);
 		}
 		setVariableItem({ ...variableItem, data: localTable });
@@ -169,6 +174,25 @@ const Variables = (_props: IVariableProps) => {
 		return false;
 	}
 
+	// Keep the latest handler for the Ctrl+S listener.
+	const submitRef = useRef(() => {});
+	submitRef.current = () => {
+		if (variableItem && !isDisabled()) {
+			onSubmitClick();
+		}
+	};
+
+	useEffect(() => {
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.ctrlKey && (e.key === "S" || e.key === "s")) {
+				e.preventDefault();
+				submitRef.current();
+			}
+		};
+		document.addEventListener("keydown", handleKeyDown);
+		return () => document.removeEventListener("keydown", handleKeyDown);
+	}, []);
+
 	function onNameChange(event: any) {
 		setVariableItem({ ...variableItem, name: event.target.value });
 		setErrors({
@@ -234,7 +258,10 @@ const Variables = (_props: IVariableProps) => {
 						<strong>AWS:</strong>{" "}
 						<code>{"aws:<profile>:<secret-name>[:json-property]"}</code>
 					</li>
-					{/* <li><strong>Azure:</strong>{" "}<code>{"azure:<vault-name>:<secret-name>[:json-property]"}</code></li> */}
+					<li>
+						<strong>Azure:</strong>{" "}
+						<code>{"azure:<vault-name>:<secret-name>[:json-property]"}</code>
+					</li>
 					<li>
 						Use <strong>Variable → Secrets Integration</strong> to cache or
 						clear cloud secrets. Caching reduces cloud API calls and helps

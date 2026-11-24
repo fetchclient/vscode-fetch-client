@@ -82,8 +82,8 @@ const MainUI = () => {
 
 	const [reqClass, setReqClass] = useState("full-height");
 	const [resClass, setResClass] = useState("zero-height");
-	const [reqBorderClass, setReqBorderClass] = useState("");
-	const [resBorderClass, setResBorderClass] = useState("no-border");
+	const reqBorderClass = reqClass === "zero-height" ? "no-border" : "";
+	const resBorderClass = resClass === "zero-height" ? "no-border" : "";
 	const [varId, setVarId] = useState(
 		titleVarId !== "undefined" ? titleVarId : "",
 	);
@@ -148,11 +148,6 @@ const MainUI = () => {
 			setOpenPanel(1);
 		}
 	}, [response]);
-
-	useEffect(() => {
-		setReqBorderClass(reqClass === "zero-height" ? "no-border" : "");
-		setResBorderClass(resClass === "zero-height" ? "no-border" : "");
-	}, [reqClass, resClass]);
 
 	useEffect(() => {
 		const timer = saveVisible
@@ -404,6 +399,8 @@ const MainUI = () => {
 								<div>
 									<RequestPanel />
 									<div
+										role="status"
+										aria-live="polite"
 										className={
 											saveVisible
 												? "save-text save-visible save-text-horizontal"
@@ -444,6 +441,8 @@ const MainUI = () => {
 									<div className={reqBorderClass + " content"}>
 										<RequestPanel />
 										<div
+											role="status"
+											aria-live="polite"
 											className={
 												saveVisible
 													? "save-text save-visible save-text-horizontal"
@@ -493,6 +492,8 @@ const MainUI = () => {
 							<div>
 								<RequestPanel />
 								<div
+									role="status"
+									aria-live="polite"
 									className={
 										saveVisible
 											? "save-text save-visible"

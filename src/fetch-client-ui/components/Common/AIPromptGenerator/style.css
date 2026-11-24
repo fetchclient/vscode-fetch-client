@@ -2,6 +2,7 @@
 	display: flex;
 	flex-direction: column;
 	height: calc(100% - 15px);
+	overflow: hidden;
 }
 
 .ai-prompt-notice {
@@ -19,6 +20,11 @@
 	padding: 10px;
 }
 
+.ai-prompt-select-panel.ai-prompt-stacked {
+	flex-wrap: wrap;
+	row-gap: 10px;
+}
+
 .ai-prompt-field {
 	align-items: center;
 	display: flex;
@@ -29,6 +35,24 @@
 	flex: 1;
 	margin-right: 0;
 	min-width: 0;
+}
+
+.ai-prompt-stacked .ai-prompt-field-grow {
+	flex: 1 1 100%;
+	order: 1;
+}
+
+.ai-prompt-checkbox {
+	align-items: center;
+	display: flex;
+	flex-shrink: 0;
+	gap: 5px;
+	margin: 0 0 0 10px;
+	white-space: nowrap;
+}
+
+.ai-prompt-checkbox input {
+	margin: 0;
 }
 
 .ai-prompt-label {

@@ -148,3 +148,73 @@ mark {
 .statement {
 	color: orange !important;
 }
+
+.resolved-slide {
+	display: grid;
+	grid-template-rows: 0fr;
+	opacity: 0;
+	transition:
+		grid-template-rows 0.25s ease,
+		opacity 0.25s ease;
+}
+
+.resolved-slide.open {
+	grid-template-rows: 1fr;
+	opacity: 1;
+}
+
+.resolved-slide-inner {
+	overflow: hidden;
+	min-height: 0;
+}
+
+.resolved-toggle {
+	background: none;
+	color: var(--text-color);
+	border: 1px solid transparent;
+	border-radius: 4px;
+	cursor: pointer;
+	padding: 0 8px;
+	font-size: 14px;
+	opacity: 0.7;
+}
+
+.resolved-toggle:hover,
+.resolved-toggle.active {
+	opacity: 1;
+	border-color: var(--focus-border-color);
+}
+
+.request-resolved-url {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 8px;
+	padding: 6px 8px;
+	font-size: 12px;
+	border-left: 3px solid var(--focus-border-color);
+	background: var(--vscode-textCodeBlock-background);
+	color: var(--vscode-descriptionForeground);
+}
+
+.resolved-value {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: var(--vscode-editor-font-family);
+}
+
+.resolved-copy {
+	margin-left: auto;
+	background: none;
+	color: var(--text-color);
+	border: none;
+	cursor: pointer;
+}
+
+.resolved-warning {
+	color: var(--vscode-editorWarning-foreground);
+	white-space: nowrap;
+}

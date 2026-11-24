@@ -17,7 +17,6 @@ import {
 	BLUR_COMMAND,
 	COMMAND_PRIORITY_HIGH,
 	COMMAND_PRIORITY_LOW,
-	DecoratorNode,
 	EditorConfig,
 	FOCUS_COMMAND,
 	INSERT_LINE_BREAK_COMMAND,
@@ -25,7 +24,7 @@ import {
 	LexicalNode,
 	NodeKey,
 	PASTE_COMMAND,
-	SerializedLexicalNode,
+	SerializedTextNode,
 	Spread,
 	TextNode,
 } from "lexical";
@@ -56,6 +55,7 @@ export interface TextEditorProps {
 
 // ─── Regex ──────────────────────────────────────────────────────────────────
 const VAR_REGEX = /{{[A-Za-z0-9\s!@#$%^&*()_+\-=`~\\\]\[|';:\/.,?><]+}}/g;
+const FULL_VAR_REGEX = new RegExp(`^${VAR_REGEX.source}$`);
 
 // Tag used to mark programmatic editor updates so onChange is not called
 const EXTERNAL_TAG = "fc-external";
@@ -67,12 +67,17 @@ const VarDataContext = React.createContext<Record<string, string>>({});
 type VariableStatus = "valid" | "invalid";
 
 type SerializedVariableNode = Spread<
-	{ text: string; status: VariableStatus },
-	SerializedLexicalNode
+	{ status: VariableStatus },
+	SerializedTextNode
 >;
 
-export class VariableNode extends DecoratorNode<React.ReactElement> {
-	__text: string;
+function applyVariableDom(dom: HTMLElement, status: VariableStatus): void {
+	dom.style.color = status === "invalid" ? "#f05348" : "rgb(18, 187, 18)";
+	dom.dataset.variable = "true";
+}
+
+// A text node (not a decorator) so the caret can enter and edit the variable.
+export class VariableNode extends TextNode {
 	__status: VariableStatus;
 
 	static override getType(): string {
@@ -88,8 +93,7 @@ export class VariableNode extends DecoratorNode<React.ReactElement> {
 	}
 
 	constructor(text: string, status: VariableStatus, key?: NodeKey) {
-		super(key);
-		this.__text = text;
+		super(text, key);
 		this.__status = status;
 	}
 
@@ -98,33 +102,35 @@ export class VariableNode extends DecoratorNode<React.ReactElement> {
 			...super.exportJSON(),
 			type: "variable",
 			version: 1,
-			text: this.__text,
 			status: this.__status,
 		};
 	}
 
-	override createDOM(_config: EditorConfig): HTMLElement {
-		return document.createElement("span");
+	override createDOM(config: EditorConfig): HTMLElement {
+		const dom = super.createDOM(config);
+		applyVariableDom(dom, this.__status);
+		return dom;
 	}
 
-	override updateDOM(): boolean {
+	override updateDOM(
+		prevNode: this,
+		dom: HTMLElement,
+		config: EditorConfig,
+	): boolean {
+		const needsReplace = super.updateDOM(prevNode, dom, config);
+		if (prevNode.__status !== this.__status) {
+			applyVariableDom(dom, this.__status);
+		}
+		return needsReplace;
+	}
+
+	// Typing at the edges must start a new text node, not extend the variable.
+	override canInsertTextBefore(): boolean {
 		return false;
 	}
 
-	override isInline(): boolean {
-		return true;
-	}
-
-	override isKeyboardSelectable(): boolean {
-		return true;
-	}
-
-	override getTextContent(): string {
-		return this.__text;
-	}
-
-	override decorate(): React.ReactElement {
-		return <VariableSpan text={this.__text} status={this.__status} />;
+	override canInsertTextAfter(): boolean {
+		return false;
 	}
 }
 
@@ -139,33 +145,6 @@ function $isVariableNode(
 	node: LexicalNode | null | undefined,
 ): node is VariableNode {
 	return node instanceof VariableNode;
-}
-
-// ─── VariableSpan ────────────────────────────────────────────────────────────
-// Rendered by DecoratorNode.decorate(). Uses VarDataContext for tooltips.
-function VariableSpan({
-	text,
-	status,
-}: {
-	text: string;
-	status: VariableStatus;
-}) {
-	const varData = useContext(VarDataContext);
-	const color = status === "invalid" ? "#f05348" : "rgb(18, 187, 18)";
-
-	let title: string | undefined;
-	if (status === "valid" && !checkSysVariable(text)) {
-		const resolved = replaceDataWithVariable(text, varData);
-		if (resolved && resolved !== text) {
-			title = resolved;
-		}
-	}
-
-	return (
-		<span style={{ color }} title={title}>
-			{text}
-		</span>
-	);
 }
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
@@ -183,10 +162,13 @@ function getVariableStatus(token: string, varWords: string[]): VariableStatus {
 function VariablePlugin({ varWords }: { varWords: string[] }) {
 	const [editor] = useLexicalComposerContext();
 	const varWordsRef = useRef(varWords);
+	const varData = useContext(VarDataContext);
+	const varDataRef = useRef(varData);
 
-	// Keep ref current so the transform closure always reads the latest varWords
+	// Keep refs current so closures always read the latest values
 	useEffect(() => {
 		varWordsRef.current = varWords;
+		varDataRef.current = varData;
 	});
 
 	// Re-color existing VariableNodes when varWords change
@@ -198,9 +180,12 @@ function VariablePlugin({ varWords }: { varWords: string[] }) {
 					if ($isParagraphNode(child)) {
 						for (const node of child.getChildren()) {
 							if ($isVariableNode(node)) {
-								const newStatus = getVariableStatus(node.__text, varWords);
+								const newStatus = getVariableStatus(
+									node.getTextContent(),
+									varWords,
+								);
 								if (newStatus !== node.__status) {
-									node.replace($createVariableNode(node.__text, newStatus));
+									node.getWritable().__status = newStatus;
 								}
 							}
 						}
@@ -211,35 +196,79 @@ function VariablePlugin({ varWords }: { varWords: string[] }) {
 		);
 	}, [editor, varWords]);
 
-	// Transform TextNodes: split on the first variable match.
-	// Lexical re-runs the transform on newly created TextNodes until stable.
+	// Tooltip with the resolved value, computed on hover so it is never stale
 	useEffect(() => {
-		return editor.registerNodeTransform(TextNode, (node) => {
+		const onOver = (e: MouseEvent) => {
+			const el = e.target as HTMLElement | null;
+			if (!el?.dataset?.variable) {
+				return;
+			}
+			const text = el.textContent ?? "";
+			const resolved = checkSysVariable(text)
+				? text
+				: replaceDataWithVariable(text, varDataRef.current);
+			el.title = resolved !== text ? resolved : "";
+		};
+		return editor.registerRootListener((root, prevRoot) => {
+			prevRoot?.removeEventListener("mouseover", onOver);
+			root?.addEventListener("mouseover", onOver);
+		});
+	}, [editor]);
+
+	// Wrap {{...}} in a VariableNode; unwrap a VariableNode once it stops matching.
+	useEffect(() => {
+		const transform = (node: TextNode) => {
 			const text = node.getTextContent();
+
+			if ($isVariableNode(node)) {
+				if (FULL_VAR_REGEX.test(text)) {
+					const status = getVariableStatus(text, varWordsRef.current);
+					if (status !== node.__status) {
+						node.getWritable().__status = status;
+					}
+					return;
+				}
+				const selection = $getSelection();
+				const offset =
+					$isRangeSelection(selection) &&
+					selection.isCollapsed() &&
+					selection.anchor.key === node.getKey()
+						? selection.anchor.offset
+						: null;
+				const plain = $createTextNode(text);
+				node.replace(plain);
+				if (offset !== null) {
+					plain.select(offset, offset);
+				}
+				return;
+			}
+
 			VAR_REGEX.lastIndex = 0;
 			const match = VAR_REGEX.exec(text);
 			if (!match) {
 				return;
 			}
 
-			const before = text.slice(0, match.index);
-			const varToken = match[0];
-			const after = text.slice(match.index + varToken.length);
+			const start = match.index;
+			const end = start + match[0].length;
+			const offsets = [start, end].filter((o) => o > 0 && o < text.length);
+			const parts = offsets.length > 0 ? node.splitText(...offsets) : [node];
+			const target = parts[start > 0 ? 1 : 0];
 
-			const status = getVariableStatus(varToken, varWordsRef.current);
-			const varNode = $createVariableNode(varToken, status);
+			target.replace(
+				$createVariableNode(
+					match[0],
+					getVariableStatus(match[0], varWordsRef.current),
+				),
+			);
+		};
 
-			if (before) {
-				node.insertBefore($createTextNode(before));
-			}
-			node.insertBefore(varNode);
-
-			if (after) {
-				node.replace($createTextNode(after));
-			} else {
-				node.remove();
-			}
-		});
+		const unregText = editor.registerNodeTransform(TextNode, transform);
+		const unregVar = editor.registerNodeTransform(VariableNode, transform);
+		return () => {
+			unregText();
+			unregVar();
+		};
 	}, [editor]);
 
 	return null;

@@ -13,10 +13,10 @@ import {
 import { sideBarProvider } from "../../extension";
 import * as vscode from "vscode";
 import {
-	clearAwsSecretCache,
-	handleAwsCheckConnectivity,
-	handleAwsFetchAndCache,
-} from "../../fetch-client-core/utils/secretMangerService/awsConnectivityService";
+	clearSecretCache,
+	handleCheckConnectivity,
+	handleFetchAndCache,
+} from "../../fetch-client-core/utils/secretMangerService/secretService";
 
 export class VariablePanel {
 	public static currentPanel: VariablePanel | undefined;
@@ -128,19 +128,19 @@ export class VariablePanel {
 			} else if (reqData.type === requestTypes.getAllVariableRequest) {
 				GetAllVariable(this._panel.webview);
 			} else if (reqData.type === requestTypes.awsCheckConnectivityRequest) {
-				const results = await handleAwsCheckConnectivity(reqData.data.targets);
+				const results = await handleCheckConnectivity(reqData.data.targets);
 				this._panel.webview.postMessage({
 					type: responseTypes.awsCheckConnectivityResponse,
 					results,
 				});
 			} else if (reqData.type === requestTypes.awsFetchAndCacheRequest) {
-				const results = await handleAwsFetchAndCache(reqData.data.targets);
+				const results = await handleFetchAndCache(reqData.data.targets);
 				this._panel.webview.postMessage({
 					type: responseTypes.awsFetchAndCacheResponse,
 					results,
 				});
 			} else if (reqData.type === requestTypes.clearSecretCacheRequest) {
-				const results = clearAwsSecretCache(reqData.data.targets);
+				const results = await clearSecretCache(reqData.data.targets);
 				this._panel.webview.postMessage({
 					type: responseTypes.clearSecretCacheResponse,
 					results,

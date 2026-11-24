@@ -30,7 +30,29 @@ export interface IAIPromptResponse {
 	body: string;
 }
 
+export interface IAIPromptOptions {
+	truncateResponse: boolean;
+}
+
 const MAX_BODY_CHARS = 20000;
+const SHRUNK_MAX_CHARS = 12000;
+const MAX_ARRAY_ITEMS = 3;
+const MAX_STRING_CHARS = 200;
+const LOW_VALUE_RESPONSE_HEADERS = new Set([
+	"date",
+	"etag",
+	"server",
+	"set-cookie",
+	"x-request-id",
+	"cf-ray",
+	"age",
+	"via",
+	"vary",
+	"connection",
+	"keep-alive",
+	"x-powered-by",
+	"last-modified",
+]);
 const REDACTED = "<redacted>";
 const SENSITIVE_KEY =
 	/authorization|token|secret|passw(or)?d|pwd|api[-_]?key|cookie|session|credential|signature|bearer|private[-_]?key/i;
@@ -85,9 +107,15 @@ function redactUrl(url: string): string {
 		.replace(JWT, REDACTED);
 }
 
-function formatTable(rows: ITableData[]): string {
+function formatTable(rows: ITableData[], skipKeys?: Set<string>): string {
 	const lines = (rows ?? [])
-		.filter((r) => r.key && r.isChecked !== false)
+		.filter(
+			(r) =>
+				r.key &&
+				r.isChecked !== false &&
+				!skipKeys?.has(r.key.toLowerCase()) &&
+				!(skipKeys && r.key.toLowerCase().startsWith("x-ratelimit-")),
+		)
 		.map((r) =>
 			isSensitive(r.key, r.value)
 				? `- ${r.key}: ${REDACTED}`
@@ -96,10 +124,44 @@ function formatTable(rows: ITableData[]): string {
 	return lines.length > 0 ? lines.join("\n") : "(none)";
 }
 
-function truncate(text: string): string {
-	return text.length > MAX_BODY_CHARS
-		? text.slice(0, MAX_BODY_CHARS) + "\n...[truncated]"
-		: text;
+function truncate(text: string, max = MAX_BODY_CHARS): string {
+	return text.length > max ? text.slice(0, max) + "\n...[truncated]" : text;
+}
+
+function shrinkJson(node: unknown): unknown {
+	if (Array.isArray(node)) {
+		const items: unknown[] = node.slice(0, MAX_ARRAY_ITEMS).map(shrinkJson);
+		if (node.length > MAX_ARRAY_ITEMS) {
+			items.push(
+				`...[${node.length - MAX_ARRAY_ITEMS} more items, total ${node.length}]`,
+			);
+		}
+		return items;
+	}
+	if (node && typeof node === "object") {
+		return Object.fromEntries(
+			Object.entries(node).map(([k, v]) => [k, shrinkJson(v)]),
+		);
+	}
+	if (typeof node === "string" && node.length > MAX_STRING_CHARS) {
+		return node.slice(0, MAX_STRING_CHARS) + "...[truncated]";
+	}
+	return node;
+}
+
+function formatResponseBody(raw: string, shrink: boolean): string {
+	const redacted = redactText(raw);
+	if (!shrink) {
+		return truncate(redacted);
+	}
+	try {
+		return truncate(
+			JSON.stringify(shrinkJson(JSON.parse(redacted)), null, 2),
+			SHRUNK_MAX_CHARS,
+		);
+	} catch {
+		return truncate(redacted, SHRUNK_MAX_CHARS);
+	}
 }
 
 function formatBody(body: IBodyData): string {
@@ -124,6 +186,7 @@ function formatBody(body: IBodyData): string {
 function buildRequestResponseSection(
 	req: IAIPromptRequest,
 	res: IAIPromptResponse,
+	options: IAIPromptOptions,
 ): string {
 	const resBody =
 		typeof res.body === "string" ? res.body : JSON.stringify(res.body ?? "");
@@ -144,10 +207,15 @@ function buildRequestResponseSection(
 		`Status: ${res.status} ${res.statusText}`,
 		`Time: ${res.duration} ms`,
 		"Headers:",
-		formatTable(res.headers),
+		formatTable(res.headers, LOW_VALUE_RESPONSE_HEADERS),
 		"Body:",
-		truncate(redactText(resBody)),
-	].join("\n");
+		options.truncateResponse
+			? 'Note: large arrays and long strings were shortened ("...[N more items]"). Do not assert array lengths or values you cannot see.'
+			: "",
+		formatResponseBody(resBody, options.truncateResponse),
+	]
+		.filter((line, i, arr) => !(line === "" && arr[i - 1] === "Body:"))
+		.join("\n");
 }
 
 function buildAllowedAssertions(): string {
@@ -163,6 +231,7 @@ export function buildTestCasePrompt(
 	req: IAIPromptRequest,
 	res: IAIPromptResponse,
 	notes: string,
+	options: IAIPromptOptions,
 ): string {
 	const sample = JSON.stringify(
 		buildSampleTestCaseFile(req.method, req.url),
@@ -173,7 +242,7 @@ export function buildTestCasePrompt(
 	return [
 		"You are an API test engineer. Create test cases for the API request and response below.",
 		"",
-		buildRequestResponseSection(req, res),
+		buildRequestResponseSection(req, res, options),
 		"",
 		notes.trim() ? `## Additional instructions\n${notes.trim()}\n` : "",
 		"## Output format",
@@ -205,11 +274,12 @@ export function buildDocumentationPrompt(
 	req: IAIPromptRequest,
 	res: IAIPromptResponse,
 	notes: string,
+	options: IAIPromptOptions,
 ): string {
 	return [
 		"You are a technical writer. Write clear API documentation in Markdown for the request and response below.",
 		"",
-		buildRequestResponseSection(req, res),
+		buildRequestResponseSection(req, res, options),
 		"",
 		notes.trim() ? `## Additional instructions\n${notes.trim()}\n` : "",
 		"## Output format",
@@ -225,8 +295,9 @@ export function buildAIPrompt(
 	req: IAIPromptRequest,
 	res: IAIPromptResponse,
 	notes: string,
+	options: IAIPromptOptions = { truncateResponse: true },
 ): string {
 	return kind === "documentation"
-		? buildDocumentationPrompt(req, res, notes)
-		: buildTestCasePrompt(req, res, notes);
+		? buildDocumentationPrompt(req, res, notes, options)
+		: buildTestCasePrompt(req, res, notes, options);
 }

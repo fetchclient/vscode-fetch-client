@@ -9,7 +9,11 @@ import { IRootState } from "../../../reducer/combineReducer";
 import { useSelector } from "react-redux";
 import React, { useMemo, useState } from "react";
 
-const AIPromptGenerator = () => {
+const AIPromptGenerator = ({
+	isVerticalLayout = false,
+}: {
+	isVerticalLayout?: boolean;
+}) => {
 	const { method, url, params, headers, auth, body } = useSelector(
 		(state: IRootState) => state.requestData,
 	);
@@ -19,6 +23,7 @@ const AIPromptGenerator = () => {
 
 	const [kind, setKind] = useState<AIPromptKind>("testcase");
 	const [notes, setNotes] = useState("");
+	const [truncateResponse, setTruncateResponse] = useState(true);
 
 	const prompt = useMemo(
 		() =>
@@ -33,10 +38,12 @@ const AIPromptGenerator = () => {
 					body: response.responseData,
 				},
 				notes,
+				{ truncateResponse },
 			),
 		[
 			kind,
 			notes,
+			truncateResponse,
 			method,
 			url,
 			params,
@@ -52,13 +59,18 @@ const AIPromptGenerator = () => {
 		<div className="ai-prompt-panel">
 			<hr />
 			<div className="ai-prompt-notice">
-				⚠️ This is a beta feature. The prompt is built from your request and
-				response; known sensitive values (tokens, passwords, API keys, cookies)
-				are masked, but masking is not guaranteed. Review the prompt and remove
-				any confidential data before pasting it into an AI tool. AI output can
-				be inaccurate, so verify generated test cases before relying on them.
+				⚠️ The prompt is built from your request and response; known sensitive
+				values (tokens, passwords, API keys, cookies) are masked, but masking is
+				not guaranteed. Review the prompt and remove any confidential data
+				before pasting it into an AI tool. AI output can be inaccurate, so
+				verify generated test cases before relying on them.
 			</div>
-			<div className="ai-prompt-select-panel">
+			<div
+				className={
+					"ai-prompt-select-panel" +
+					(isVerticalLayout ? " ai-prompt-stacked" : "")
+				}
+			>
 				<div className="ai-prompt-field">
 					<label className="ai-prompt-label">Action</label>
 					<select
@@ -83,6 +95,14 @@ const AIPromptGenerator = () => {
 						onChange={(e) => setNotes(e.target.value)}
 					/>
 				</div>
+				<label className="ai-prompt-checkbox">
+					<input
+						type="checkbox"
+						checked={truncateResponse}
+						onChange={(e) => setTruncateResponse(e.target.checked)}
+					/>
+					Truncate response body
+				</label>
 			</div>
 			<div className="ai-prompt-editor">
 				<AceEditor

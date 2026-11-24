@@ -1,7 +1,8 @@
 import { IRequestModel } from "../types/request.types";
 import { ISettings } from "../types/sidebar.types";
 import { ITableData } from "../types/common.types";
-import { getSecretCached } from "../utils/secretMangerService/awsConnectivityService";
+import { getSecretCached } from "../utils/secretMangerService/secretService";
+import { parseSecretKey } from "../utils/secretMangerService/secretRef";
 import { replacePlainVariable, replaceSysVariable } from "./variable.helper";
 
 // ---------------------------------------------------------------------------
@@ -10,7 +11,6 @@ import { replacePlainVariable, replaceSysVariable } from "./variable.helper";
 
 const VARIABLE_PATTERN = /({{([^}}]+)}})/;
 const VARIABLE_PATTERN_GLOBAL = /({{([^}}]+)}})/gm;
-const AWS_KEY_REGEX = /^aws:([^:{}]+):([^:{}]+)(?::([^:{}]+))?$/;
 
 // ---------------------------------------------------------------------------
 // Variable substitution
@@ -255,8 +255,11 @@ async function updateVariable(
 		return replaceSysVariable(item, data);
 	}
 
-	if (item.startsWith("{{aws:") && item.includes("}}")) {
-		return await replaceAwsSecretVariable(item, data);
+	if (
+		(item.startsWith("{{aws:") || item.startsWith("{{azure:")) &&
+		item.includes("}}")
+	) {
+		return await replaceCloudSecretVariable(item, data);
 	}
 
 	if (Object.keys(varData).length > 0) {
@@ -266,18 +269,18 @@ async function updateVariable(
 	return data;
 }
 
-async function replaceAwsSecretVariable(
+async function replaceCloudSecretVariable(
 	item: string,
 	data: string,
 ): Promise<string> {
 	const key = item.replace(/^{{/, "").replace(/}}$/, "").trim();
-	const match = AWS_KEY_REGEX.exec((key ?? "").trim());
-	if (!match) {
+	const parsed = parseSecretKey(key);
+	if (!parsed) {
 		return data;
 	}
 
-	const [, profile, secretName, jsonKey] = match;
-	const secretData = await getSecretCached(profile, secretName);
+	const { provider, scope, secretName, jsonProperty: jsonKey } = parsed;
+	const secretData = await getSecretCached(provider, scope, secretName);
 	if (!secretData?.raw) {
 		return data;
 	}
