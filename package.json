@@ -586,7 +586,7 @@
 		"react-simple-wysiwyg": "3.4.1",
 		"react-split": "2.0.14",
 		"redux": "5.0.1",
-		"uuid": "14.0.0",
+		"uuid": "14.0.3",
 		"xml-formatter": "3.7.0",
 		"yargs-parser": "22.0.0"
 	},
