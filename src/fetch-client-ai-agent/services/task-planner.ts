@@ -3,6 +3,7 @@ import type { AgentMessage } from "../types/agent-contracts";
 import type { ILLMProvider } from "../types/agent-dependencies";
 import type { ITaskPlan } from "../types/task-plan";
 import { PLANNED_TOOL_NAMES, TaskPlanSchema } from "./task-plan.schema";
+import { CapabilityRequirements } from "../types/provider-capabilities";
 
 export const TASK_PLAN_PROMPT_VERSION = "task-plan-v1";
 
@@ -23,6 +24,12 @@ export interface PlanTaskOptions {
 type ValidationOutcome =
 	| { ok: true; plan: ITaskPlan }
 	| { ok: false; error: TaskPlanFailure };
+
+// The plan needs JSON output. A prompt-and-validate fallback is allowed,
+// because the plan is validated at runtime (Session 16).
+export const TASK_PLAN_REQUIREMENTS: CapabilityRequirements = {
+	structuredOutput: "json_mode",
+};
 
 const PROMPT_TEMPLATE = `You are a task planning assistant.
 

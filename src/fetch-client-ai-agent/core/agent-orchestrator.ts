@@ -24,11 +24,19 @@ import type {
 	IAgentDependencies,
 	ApprovedToolCall,
 } from "../types/agent-dependencies";
+import { CapabilityRequirements } from "../types/provider-capabilities";
 
 const MAX_STEPS = 20;
 const TASK_FAILED_MESSAGE = "The task failed.";
 
 type TaskOutcome = "completed" | "failed" | "cancelled";
+
+// The agent loop cannot run without native tool calls.
+// Cancellation must work, so the provider must honour the abort signal.
+export const AGENT_LOOP_REQUIREMENTS: CapabilityRequirements = {
+	toolCalling: "native",
+	honoursAbortSignal: true,
+};
 
 // --------------------------------------------------------------------------
 // Authorization marker

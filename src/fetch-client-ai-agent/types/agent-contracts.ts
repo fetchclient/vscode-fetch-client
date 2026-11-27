@@ -56,7 +56,8 @@ export type LLMErrorKind =
 	| "api"
 	| "invalid_request"
 	| "invalid_response"
-	| "unknown";
+	| "unknown"
+	| "unsupported_capability";
 
 /** Kinds the orchestrator may retry. Everything else fails the task. */
 export const RETRYABLE_LLM_ERRORS: ReadonlySet<LLMErrorKind> =
@@ -100,6 +101,10 @@ export type ToolCallStatus =
 export interface IToolCall {
 	/** Unique id; ToolResult.toolCallId points back to it. */
 	id: string;
+	/** Tool-call ID as returned by the provider, preserved unchanged. Absent when the provider returned none. */
+  providerCallId?: string;
+  /** 'provider' when the ID came from the model, 'runtime' when the runtime generated it. */
+  idSource: 'provider' | 'runtime';
 	/** Must match a registered ToolDefinition.name. */
 	toolName: string;
 	/** Raw arguments; validate against the tool's inputSchema. */
