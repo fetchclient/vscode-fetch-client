@@ -17,7 +17,9 @@ describe("task-planner", () => {
 
 	describe("buildTaskPlanPrompt", () => {
 		it("should include trimmed goal serialized as JSON", () => {
-			const prompt = buildTaskPlanPrompt("  Import OpenAPI and generate tests  ");
+			const prompt = buildTaskPlanPrompt(
+				"  Import OpenAPI and generate tests  ",
+			);
 			expect(prompt).toContain('"Import OpenAPI and generate tests"');
 		});
 
@@ -36,7 +38,9 @@ describe("task-planner", () => {
 
 		it("should include core output rules and schema requirements", () => {
 			const prompt = buildTaskPlanPrompt("Test goal");
-			expect(prompt).toContain('Top-level keys: "goal" (string) and "steps" (array with at least one item)');
+			expect(prompt).toContain(
+				'Top-level keys: "goal" (string) and "steps" (array with at least one item)',
+			);
 			expect(prompt).toContain('"read", "write", or "destructive"');
 			expect(prompt).toContain("sequential integer, starting at 1");
 		});
@@ -62,9 +66,12 @@ describe("task-planner", () => {
 		});
 
 		it("should extract JSON with surrounding conversational text", () => {
-			const raw = 'Sure! Here is your plan:\n{"goal":"Generate requests","steps":[]}\nLet me know if you need changes.';
+			const raw =
+				'Sure! Here is your plan:\n{"goal":"Generate requests","steps":[]}\nLet me know if you need changes.';
 			const result = extractJson(raw);
-			expect(result).toEqual({ value: { goal: "Generate requests", steps: [] } });
+			expect(result).toEqual({
+				value: { goal: "Generate requests", steps: [] },
+			});
 		});
 
 		it("should extract JSON with surrounding text inside a code fence", () => {
@@ -120,7 +127,10 @@ describe("task-planner", () => {
 		it("should succeed on first attempt with clean JSON output", async () => {
 			provider.enqueueTextResponse(validPlanJson);
 
-			const result = await planTask("Import OpenAPI and create tests", provider);
+			const result = await planTask(
+				"Import OpenAPI and create tests",
+				provider,
+			);
 
 			expect(result.ok).toBe(true);
 			if (result.ok) {
@@ -145,13 +155,18 @@ describe("task-planner", () => {
 			expect(provider.calls[0].tools).toEqual([]);
 			expect(provider.calls[0].messages).toHaveLength(1);
 			expect(provider.calls[0].messages[0].role).toBe("user");
-			expect(provider.calls[0].messages[0].content).toContain('"Import OpenAPI and create tests"');
+			expect(provider.calls[0].messages[0].content).toContain(
+				'"Import OpenAPI and create tests"',
+			);
 		});
 
 		it("should succeed when valid JSON is wrapped in markdown code fences", async () => {
 			provider.enqueueTextResponse(`\`\`\`json\n${validPlanJson}\n\`\`\``);
 
-			const result = await planTask("Import OpenAPI and create tests", provider);
+			const result = await planTask(
+				"Import OpenAPI and create tests",
+				provider,
+			);
 
 			expect(result.ok).toBe(true);
 			if (result.ok) {
@@ -165,7 +180,10 @@ describe("task-planner", () => {
 				`Here is the plan for your request:\n\n${validPlanJson}\n\nHope this helps!`,
 			);
 
-			const result = await planTask("Import OpenAPI and create tests", provider);
+			const result = await planTask(
+				"Import OpenAPI and create tests",
+				provider,
+			);
 
 			expect(result.ok).toBe(true);
 			if (result.ok) {
@@ -211,7 +229,9 @@ describe("task-planner", () => {
 			expect(retryCallMessages).toHaveLength(3);
 			expect(retryCallMessages[0].role).toBe("user");
 			expect(retryCallMessages[1].role).toBe("assistant");
-			expect(retryCallMessages[1].content).toBe("Sorry, I cannot produce JSON right now.");
+			expect(retryCallMessages[1].content).toBe(
+				"Sorry, I cannot produce JSON right now.",
+			);
 			expect(retryCallMessages[2].role).toBe("user");
 			expect(retryCallMessages[2].content).toContain(
 				"Your previous reply was not a single valid JSON object. Return only the JSON object, with no text or code fences.",
@@ -248,7 +268,9 @@ describe("task-planner", () => {
 			expect(retryCallMessages[2].content).toContain(
 				"Your previous JSON did not match the required structure. Fix these problems and return the full corrected JSON object only:",
 			);
-			expect(retryCallMessages[2].content).toContain("steps.0.id: Step IDs must be sequential, starting at 1");
+			expect(retryCallMessages[2].content).toContain(
+				"steps.0.id: Step IDs must be sequential, starting at 1",
+			);
 		});
 
 		it("should return invalid_json error when retries are exhausted", async () => {
@@ -367,13 +389,17 @@ describe("task-planner", () => {
 
 			provider.enqueueTextResponse(unknownToolPlan);
 
-			const result = await planTask("Test unknown tool", provider, { maxRetries: 0 });
+			const result = await planTask("Test unknown tool", provider, {
+				maxRetries: 0,
+			});
 
 			expect(result.ok).toBe(false);
 			if (!result.ok) {
 				expect(result.error.kind).toBe("invalid_plan");
 				if (result.error.kind === "invalid_plan") {
-					expect(result.error.issues.some((i) => i.includes("steps.0.toolName"))).toBe(true);
+					expect(
+						result.error.issues.some((i) => i.includes("steps.0.toolName")),
+					).toBe(true);
 				}
 			}
 		});
@@ -386,13 +412,17 @@ describe("task-planner", () => {
 
 			provider.enqueueTextResponse(emptyStepsPlan);
 
-			const result = await planTask("Empty steps plan", provider, { maxRetries: 0 });
+			const result = await planTask("Empty steps plan", provider, {
+				maxRetries: 0,
+			});
 
 			expect(result.ok).toBe(false);
 			if (!result.ok) {
 				expect(result.error.kind).toBe("invalid_plan");
 				if (result.error.kind === "invalid_plan") {
-					expect(result.error.issues.some((i) => i.includes("steps"))).toBe(true);
+					expect(result.error.issues.some((i) => i.includes("steps"))).toBe(
+						true,
+					);
 				}
 			}
 		});
@@ -412,13 +442,17 @@ describe("task-planner", () => {
 
 			provider.enqueueTextResponse(extraFieldPlan);
 
-			const result = await planTask("Extra field plan", provider, { maxRetries: 0 });
+			const result = await planTask("Extra field plan", provider, {
+				maxRetries: 0,
+			});
 
 			expect(result.ok).toBe(false);
 			if (!result.ok) {
 				expect(result.error.kind).toBe("invalid_plan");
 				if (result.error.kind === "invalid_plan") {
-					expect(result.error.issues.some((i) => i.includes("extraField"))).toBe(true);
+					expect(
+						result.error.issues.some((i) => i.includes("extraField")),
+					).toBe(true);
 				}
 			}
 		});

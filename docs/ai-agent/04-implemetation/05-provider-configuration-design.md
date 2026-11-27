@@ -1,10 +1,7 @@
 # Provider Configuration and Data-Sharing Design
 
-**Session:** 15 (Phase 2: Model Providers and First Model Call)
-**Status:** Accepted, except DS-07 (provider retention verification)
-**Date:** 2026-11-24
-**Scope:** Provider and model settings, credential handling, variable sensitivity, context sharing, approval, preview, retention notices, and logging for the Fetch Client AI Agent.
-**Decision register:** `architecture-decisions.md` (DS-01 to DS-09)
+**Session:** 15 (Phase 2: Model Providers and First Model Call) **Status:** Accepted, except DS-07 (provider retention verification) **Date:** 2026-11-24 **Scope:** Provider and model settings, credential handling, variable sensitivity, context
+sharing, approval, preview, retention notices, and logging for the Fetch Client AI Agent. **Decision register:** `architecture-decisions.md` (DS-01 to DS-09)
 
 ---
 
@@ -75,12 +72,12 @@ The provider key and the user's API credentials being tested in Fetch Client are
 
 Each variable has one of four classifications:
 
-| Classification | AI context behavior |
-|---|---|
-| Secret | Never resolved. Represented by a placeholder. |
-| Sensitive | Never resolved. Represented by a redacted placeholder. |
-| Normal | Resolved only if the sharing policy permits. |
-| Unknown | Treated as Sensitive. Never resolved. |
+| Classification | AI context behavior                                    |
+| -------------- | ------------------------------------------------------ |
+| Secret         | Never resolved. Represented by a placeholder.          |
+| Sensitive      | Never resolved. Represented by a redacted placeholder. |
+| Normal         | Resolved only if the sharing policy permits.           |
+| Unknown        | Treated as Sensitive. Never resolved.                  |
 
 Example.
 
@@ -124,22 +121,22 @@ AI context:
 
 These defaults apply to all providers, local and remote alike.
 
-| Data category | Default | Notes |
-|---|---|---|
-| Collection and folder names | Allowed | Needed for workspace context. |
-| Request method and path | Allowed | Sensitive query parameters are detected and removed. |
-| Hostnames and base URLs | Masked | Replaced with `{{baseUrl}}`. |
-| General request headers | Allowed | For example, `Content-Type` and `Accept`. |
-| Authentication headers | Blocked | `Authorization`, `X-API-Key`, `Cookie`, `Proxy-Authorization`. |
-| Request body | Requires approval | Shown in the preview after sanitization. |
-| Response body (sample) | Requires approval | Truncated and sanitized before sharing. |
-| `Set-Cookie` response header | Blocked | |
-| Other response headers | Masked | Values of token-bearing headers replaced with `[REDACTED]`. |
-| Environment variable names | Allowed | Names matching sensitive patterns are excluded. |
-| Environment variable values, Normal | Masked by default | Shared only if the policy permits and the user approves. |
-| Environment variable values, Secret, Sensitive, or Unknown | Blocked | Never resolved or sent. |
-| OpenAPI specification | Requires approval | Preview lists the included paths and sanitized content. |
-| Stored response history | Blocked | Not included by default. |
+| Data category                                              | Default           | Notes                                                          |
+| ---------------------------------------------------------- | ----------------- | -------------------------------------------------------------- |
+| Collection and folder names                                | Allowed           | Needed for workspace context.                                  |
+| Request method and path                                    | Allowed           | Sensitive query parameters are detected and removed.           |
+| Hostnames and base URLs                                    | Masked            | Replaced with `{{baseUrl}}`.                                   |
+| General request headers                                    | Allowed           | For example, `Content-Type` and `Accept`.                      |
+| Authentication headers                                     | Blocked           | `Authorization`, `X-API-Key`, `Cookie`, `Proxy-Authorization`. |
+| Request body                                               | Requires approval | Shown in the preview after sanitization.                       |
+| Response body (sample)                                     | Requires approval | Truncated and sanitized before sharing.                        |
+| `Set-Cookie` response header                               | Blocked           |                                                                |
+| Other response headers                                     | Masked            | Values of token-bearing headers replaced with `[REDACTED]`.    |
+| Environment variable names                                 | Allowed           | Names matching sensitive patterns are excluded.                |
+| Environment variable values, Normal                        | Masked by default | Shared only if the policy permits and the user approves.       |
+| Environment variable values, Secret, Sensitive, or Unknown | Blocked           | Never resolved or sent.                                        |
+| OpenAPI specification                                      | Requires approval | Preview lists the included paths and sanitized content.        |
+| Stored response history                                    | Blocked           | Not included by default.                                       |
 
 Additional rules:
 
@@ -162,15 +159,15 @@ A provider is `local` only when its resolved destination is a loopback address:
 
 Everything else is `remote`.
 
-| Endpoint | Classification |
-|---|---|
-| `http://localhost:11434` | Local |
-| `http://127.0.0.1:11434` | Local |
-| `http://[::1]:11434` | Local |
-| `http://192.168.1.10:11434` | Remote |
-| `https://api.example.com` | Remote |
-| Remote Ollama server | Remote |
-| Custom remote endpoint | Remote |
+| Endpoint                    | Classification |
+| --------------------------- | -------------- |
+| `http://localhost:11434`    | Local          |
+| `http://127.0.0.1:11434`    | Local          |
+| `http://[::1]:11434`        | Local          |
+| `http://192.168.1.10:11434` | Remote         |
+| `https://api.example.com`   | Remote         |
+| Remote Ollama server        | Remote         |
+| Custom remote endpoint      | Remote         |
 
 Requirements:
 
@@ -188,11 +185,11 @@ Approval is required before any context is sent to a provider.
 
 ### Scopes
 
-| Scope | Behavior |
-|---|---|
-| Per-call | Each AI request needs its own approval. |
-| Per-task (default) | One approval covers the declared context of one AI task. |
-| Per-session | Explicit opt-in. Reuses approval across tasks in the current session. |
+| Scope              | Behavior                                                              |
+| ------------------ | --------------------------------------------------------------------- |
+| Per-call           | Each AI request needs its own approval.                               |
+| Per-task (default) | One approval covers the declared context of one AI task.              |
+| Per-session        | Explicit opt-in. Reuses approval across tasks in the current session. |
 
 ### Rules for all scopes
 
@@ -217,11 +214,11 @@ interface ContextApproval {
   taskId: string;
   providerId: string;
   modelId: string;
-  endpoint: string;               // normalized endpoint URL, no credentials
+  endpoint: string; // normalized endpoint URL, no credentials
   classification: "local" | "remote";
   policyVersion: string;
-  contextHash: string;            // SHA-256 over the envelope below
-  approvedAt: string;             // ISO 8601 UTC
+  contextHash: string; // SHA-256 over the envelope below
+  approvedAt: string; // ISO 8601 UTC
   scope: "call" | "task" | "session";
 }
 ```
@@ -293,8 +290,8 @@ Each provider has a verification record:
 ```ts
 interface ProviderRetentionRecord {
   providerId: string;
-  sourceUrl: string;              // official documentation or contract terms
-  lastVerifiedAt: string;         // ISO 8601 UTC
+  sourceUrl: string; // official documentation or contract terms
+  lastVerifiedAt: string; // ISO 8601 UTC
   verifiedBy: string;
   retentionDescription: string;
   trainingUsageDescription: string;
@@ -359,7 +356,7 @@ Errors reuse the `LLMProviderError` kinds already implemented in Session 14, so 
 interface SanitizedAIError {
   kind: LLMProviderErrorKind;
   retryable: boolean;
-  code?: string;                  // optional stable code, for example "AI_PROVIDER_AUTH_FAILED"
+  code?: string; // optional stable code, for example "AI_PROVIDER_AUTH_FAILED"
 }
 ```
 
@@ -379,17 +376,17 @@ Provider responses are untrusted. They are validated and treated as proposals un
 
 Logging and telemetry restrictions apply to every step. A debug log added during step 3 must not capture a payload.
 
-| Step | Activity | Result |
-|---|---|---|
-| 1 | Sensitive data classification | Reliable variable and field classification |
-| 2 | Variable resolution protection | Secret, Sensitive, and Unknown variables never resolved |
-| 3 | Context sanitization | Safe AI context |
-| 4 | Endpoint classification | Local and remote determined from resolved endpoint |
-| 5 | Provider privacy metadata | Provider notices available |
-| 6 | Read-only preview | Preview generated from immutable payload bytes |
-| 7 | Approval and fingerprinting | Approval bound to envelope and payload |
-| 8 | Provider submission | Exact approved bytes sent |
-| 9 | Retention verification | Verified records for each provider |
+| Step | Activity                       | Result                                                  |
+| ---- | ------------------------------ | ------------------------------------------------------- |
+| 1    | Sensitive data classification  | Reliable variable and field classification              |
+| 2    | Variable resolution protection | Secret, Sensitive, and Unknown variables never resolved |
+| 3    | Context sanitization           | Safe AI context                                         |
+| 4    | Endpoint classification        | Local and remote determined from resolved endpoint      |
+| 5    | Provider privacy metadata      | Provider notices available                              |
+| 6    | Read-only preview              | Preview generated from immutable payload bytes          |
+| 7    | Approval and fingerprinting    | Approval bound to envelope and payload                  |
+| 8    | Provider submission            | Exact approved bytes sent                               |
+| 9    | Retention verification         | Verified records for each provider                      |
 
 ## 12. Acceptance Criteria
 
@@ -436,11 +433,13 @@ Endpoint classification must also defend against a configured provider URL being
 - Validate the destination after DNS resolution and immediately before connecting. Do not rely only on the hostname string.
 - Protect against DNS rebinding and time-of-check/time-of-use changes. The address validated by policy must be the address actually used for the connection, where the runtime permits this guarantee.
 - Re-validate every redirect destination. Prefer disabling redirects for provider API calls unless a provider requires them. If redirects are supported, apply the same scheme and destination policy at every hop.
-- Treat proxy configuration as part of the effective network destination. Document whether environment or system proxies are honored. Do not classify a request as local merely because its configured URL is loopback when a proxy can route it elsewhere.
+- Treat proxy configuration as part of the effective network destination. Document whether environment or system proxies are honored. Do not classify a request as local merely because its configured URL is loopback when a proxy can route it
+  elsewhere.
 - Set explicit connection and response-size limits. Do not allow an endpoint to return an unbounded response.
 - Do not automatically forward provider credentials to a redirected host.
 
-**Implementation note:** The existing loopback classification rule is a useful baseline, but DNS, redirects, and proxy behavior must be covered by tests. A remote or private-network address remains `remote`. It is not equivalent to a trusted local inference process.
+**Implementation note:** The existing loopback classification rule is a useful baseline, but DNS, redirects, and proxy behavior must be covered by tests. A remote or private-network address remains `remote`. It is not equivalent to a trusted local
+inference process.
 
 ### 15.2 Payload Construction and Data Minimization
 
@@ -513,7 +512,8 @@ Add automated tests for at least these cases:
 - Generated content cannot save or execute without the required user approval.
 - Logs, telemetry, crash reports, and history contain no payloads, secrets, or raw exception messages.
 
-**Release gate:** Do not enable a provider for general use until its endpoint policy, context sanitization, approval binding, error handling, and privacy notice have passing tests. Do not mark DS-07 verified until the provider-specific evidence has been recorded.
+**Release gate:** Do not enable a provider for general use until its endpoint policy, context sanitization, approval binding, error handling, and privacy notice have passing tests. Do not mark DS-07 verified until the provider-specific evidence has
+been recorded.
 
 ## 16. End-to-End Data-Sharing Flow
 

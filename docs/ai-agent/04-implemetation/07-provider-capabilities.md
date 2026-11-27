@@ -13,14 +13,14 @@ Phase 2, Day 17. Goal: define capability metadata, required and optional capabil
 
 ## 2. Capability metadata
 
-| Field | Type | Meaning |
-|---|---|---|
-| `toolCalling` | `'native' \| 'none'` | Provider returns structured tool calls |
-| `parallelToolCalls` | boolean | Several tool calls in one turn |
-| `structuredOutput` | `'json_schema' \| 'json_mode' \| 'none'` | Strength of output constraint |
-| `streaming` | boolean | Incremental output |
-| `honoursAbortSignal` | boolean | Cancels the request on `AbortSignal` |
-| `maxContextTokens` | number | Input context limit. Recorded for a future context-management consumer; not checked here |
+| Field                | Type                                     | Meaning                                                                                  |
+| -------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `toolCalling`        | `'native' \| 'none'`                     | Provider returns structured tool calls                                                   |
+| `parallelToolCalls`  | boolean                                  | Several tool calls in one turn                                                           |
+| `structuredOutput`   | `'json_schema' \| 'json_mode' \| 'none'` | Strength of output constraint                                                            |
+| `streaming`          | boolean                                  | Incremental output                                                                       |
+| `honoursAbortSignal` | boolean                                  | Cancels the request on `AbortSignal`                                                     |
+| `maxContextTokens`   | number                                   | Input context limit. Recorded for a future context-management consumer; not checked here |
 
 ## 3. Requirements per operation
 
@@ -29,17 +29,18 @@ Phase 2, Day 17. Goal: define capability metadata, required and optional capabil
 
 ## 3a. Check result
 
-`checkCapabilities` returns `{ ok, degradations }` on success and `{ ok: false, missing, degradations }` on failure. Degradations are kept on failure so diagnostics are not lost. For example, a run can fail on missing tool calling while also recording that structured output would have been degraded. The run result records these decisions consistently.
+`checkCapabilities` returns `{ ok, degradations }` on success and `{ ok: false, missing, degradations }` on failure. Degradations are kept on failure so diagnostics are not lost. For example, a run can fail on missing tool calling while also
+recording that structured output would have been degraded. The run result records these decisions consistently.
 
 ## 4. Unsupported capabilities and fallback
 
-| Gap | Allowed response | Not allowed |
-|---|---|---|
-| No native tool calling | Fail. Plan-only mode is a later option | Parsing tool calls from free text and executing them |
-| No strict structured output | Prompt for JSON, validate with Zod, retry once, record `structured_output:prompt_validated` | Trusting raw text |
-| No streaming | Single request, record `streaming:disabled` | Faking stream events |
-| No abort signal support | Fail. Cancel must work | Ignoring cancel |
-| Primary provider unavailable | Switch only to a provider that meets the same requirements and the same locality rule | Local to remote switch. Reusing an approval after a switch |
+| Gap                          | Allowed response                                                                            | Not allowed                                                |
+| ---------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| No native tool calling       | Fail. Plan-only mode is a later option                                                      | Parsing tool calls from free text and executing them       |
+| No strict structured output  | Prompt for JSON, validate with Zod, retry once, record `structured_output:prompt_validated` | Trusting raw text                                          |
+| No streaming                 | Single request, record `streaming:disabled`                                                 | Faking stream events                                       |
+| No abort signal support      | Fail. Cancel must work                                                                      | Ignoring cancel                                            |
+| Primary provider unavailable | Switch only to a provider that meets the same requirements and the same locality rule       | Local to remote switch. Reusing an approval after a switch |
 
 A missing required capability fails with a new `LLMProviderError` kind: `unsupported_capability`, `retryable: false`. This extends the error kinds in `types/agent-dependencies.ts`.
 
@@ -60,7 +61,8 @@ Decision:
 - **Provider adapter** preserves the model's tool-call ID as `providerCallId` and normalizes it. It does not generate IDs for calls that have one.
 - **Agent runtime** owns validation and correlation. Each tool result must reference exactly one call from the assistant message that requested it. IDs must be unique within a turn. Results with unknown or duplicate IDs are rejected, not guessed at.
 - **Fallback for missing IDs.** Some local models, Ollama among them, may return no tool-call ID. The runtime generates one and records `idSource: 'runtime'` on the normalized call, so its origin is never hidden.
-- **Capabilities do not own IDs.** `toolCallIdSource` is not added to `ProviderCapabilities`. Tool-call ID handling is a protocol contract, not a model capability. If providers later need different protocol formats, add a protocol-specific abstraction at that point.
+- **Capabilities do not own IDs.** `toolCallIdSource` is not added to `ProviderCapabilities`. Tool-call ID handling is a protocol contract, not a model capability. If providers later need different protocol formats, add a protocol-specific
+  abstraction at that point.
 
 Contract change needed in `topics/agent-contracts.md` and `types/agent-contracts.ts`: add `providerCallId?: string` and `idSource: 'provider' | 'runtime'` to `ToolCall`. The runtime's `id` remains the internal key.
 
@@ -68,23 +70,24 @@ Contract change needed in `topics/agent-contracts.md` and `types/agent-contracts
 
 Question: when should capability verification run, at startup or on first use?
 
-Decision: lazy first-use probing with a cache. Startup performs no network or model probes. Startup should not depend on every configured LLM being reachable, the user may configure several models but use one, and remote probes can add latency and cost.
+Decision: lazy first-use probing with a cache. Startup performs no network or model probes. Startup should not depend on every configured LLM being reachable, the user may configure several models but use one, and remote probes can add latency and
+cost.
 
 Behaviour:
 
-| Concern | Decision |
-|---|---|
-| Trigger | First use of a configured provider/model |
-| Concurrency | Single-flight. Concurrent requests for an unprobed model share one probe |
-| Outcomes | `verified`, `mismatch`, or `unavailable` |
-| Caching | Cache `verified` and `mismatch`. Never cache `unavailable` |
-| Mismatch | Downgrade the declared capabilities for that model. Record the mismatch |
-| Unavailable | Retry later with backoff. Do not mark any capability as unsupported |
-| Cache key | providerId, modelId, normalized endpoint, policyVersion (the D-09 fields) |
-| Invalidation | Any cache key field changes, or an explicit re-probe |
-| Runtime drift | If a verified model later stops behaving as declared (for example, no tool calls), trigger a re-probe rather than downgrading permanently |
-| Probe input | Fixed synthetic prompt only, never user content. No D-09 payload approval needed. Still classified by endpoint. Logs contain normalized codes only |
-| Manual validation | Reserved for a future explicit provider validation action |
+| Concern           | Decision                                                                                                                                           |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Trigger           | First use of a configured provider/model                                                                                                           |
+| Concurrency       | Single-flight. Concurrent requests for an unprobed model share one probe                                                                           |
+| Outcomes          | `verified`, `mismatch`, or `unavailable`                                                                                                           |
+| Caching           | Cache `verified` and `mismatch`. Never cache `unavailable`                                                                                         |
+| Mismatch          | Downgrade the declared capabilities for that model. Record the mismatch                                                                            |
+| Unavailable       | Retry later with backoff. Do not mark any capability as unsupported                                                                                |
+| Cache key         | providerId, modelId, normalized endpoint, policyVersion (the D-09 fields)                                                                          |
+| Invalidation      | Any cache key field changes, or an explicit re-probe                                                                                               |
+| Runtime drift     | If a verified model later stops behaving as declared (for example, no tool calls), trigger a re-probe rather than downgrading permanently          |
+| Probe input       | Fixed synthetic prompt only, never user content. No D-09 payload approval needed. Still classified by endpoint. Logs contain normalized codes only |
+| Manual validation | Reserved for a future explicit provider validation action                                                                                          |
 
 A failed probe does not show that a model lacks a capability. It may only mean the provider is down. `unavailable` must never be recorded as `mismatch`.
 
@@ -107,7 +110,8 @@ flowchart TD
     J -->|No| L[Reject or eligible fallback]
 ```
 
-**Safety boundary:** probing uses a fixed synthetic input, not user data. A provider/model switch is a new execution identity and requires fresh approval under D-09. Probe failures are operational failures (`unavailable`), not evidence of unsupported capability.
+**Safety boundary:** probing uses a fixed synthetic input, not user data. A provider/model switch is a new execution identity and requires fresh approval under D-09. Probe failures are operational failures (`unavailable`), not evidence of unsupported
+capability.
 
 ## 8b. Tool-call ID lifecycle diagram
 
@@ -198,14 +202,14 @@ Probe (once the probe exists):
 ## 13. Reflection and results (to complete)
 
 Results (full suite run, 2026-11-27):
- 
-| Test file | Tests | Result |
-|---|---|---|
-| services/capability-check.test.ts | 17 | Pass |
-| core/http-client.test.ts | 30 | Pass |
-| adapters/llm/ollama/ollama-provider.test.ts | 53 | Pass |
-| services/task-plan.schema.test.ts | 30 | Pass |
-| services/task-planner.test.ts | 30 | Pass |
-| core/tool-executor.test.ts | 4 | Pass |
-| core/agent-orchestrator.test.ts | 33 | Pass |
-| **Total** | **197 in 7 files** | **All pass** |
+
+| Test file                                   | Tests              | Result       |
+| ------------------------------------------- | ------------------ | ------------ |
+| services/capability-check.test.ts           | 17                 | Pass         |
+| core/http-client.test.ts                    | 30                 | Pass         |
+| adapters/llm/ollama/ollama-provider.test.ts | 53                 | Pass         |
+| services/task-plan.schema.test.ts           | 30                 | Pass         |
+| services/task-planner.test.ts               | 30                 | Pass         |
+| core/tool-executor.test.ts                  | 4                  | Pass         |
+| core/agent-orchestrator.test.ts             | 33                 | Pass         |
+| **Total**                                   | **197 in 7 files** | **All pass** |

@@ -213,7 +213,11 @@ describe("capability-check", () => {
 			it("should fail when streaming is required, unsupported, and fallback is disallowed", () => {
 				const caps = makeCapabilities({ streaming: false });
 
-				const result = checkCapabilities(caps, { streaming: true }, noFallbacks);
+				const result = checkCapabilities(
+					caps,
+					{ streaming: true },
+					noFallbacks,
+				);
 
 				expect(result).toEqual({
 					ok: false,

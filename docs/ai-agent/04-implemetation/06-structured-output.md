@@ -1,8 +1,8 @@
 # Session 16: Structured Output (Phase 2, Day 16)
 
-**Status:** Completed  
-**Date:** 2026-11-26  
-**Goal:** Request a task plan as JSON and validate it at runtime.  
+**Status:** Completed
+**Date:** 2026-11-26
+**Goal:** Request a task plan as JSON and validate it at runtime.
 **Deliverable:** Validated task-plan response.
 
 ## Objective
@@ -36,25 +36,25 @@ flowchart TD
 
 ### Responsibility boundaries
 
-| Component | Responsibility |
-|---|---|
-| Task Planner | Build prompts, request plans, coordinate validation and retry |
-| ILLMProvider | Communicate with the selected model provider |
-| JSON extraction | Extract a JSON object from model output |
-| Zod schema | Validate the runtime structure and constraints |
-| Retry mechanism | Send validation feedback and request a corrected response |
-| Orchestrator | Handle provider errors and downstream orchestration |
-| Policy and approval layer | Determine whether planned actions are permitted |
-| Tool executor | Execute permitted tools independently of planning |
+| Component                 | Responsibility                                                |
+| ------------------------- | ------------------------------------------------------------- |
+| Task Planner              | Build prompts, request plans, coordinate validation and retry |
+| ILLMProvider              | Communicate with the selected model provider                  |
+| JSON extraction           | Extract a JSON object from model output                       |
+| Zod schema                | Validate the runtime structure and constraints                |
+| Retry mechanism           | Send validation feedback and request a corrected response     |
+| Orchestrator              | Handle provider errors and downstream orchestration           |
+| Policy and approval layer | Determine whether planned actions are permitted               |
+| Tool executor             | Execute permitted tools independently of planning             |
 
 ## Files
 
-| File | Purpose |
-|---|---|
-| `src/fetch-client-ai-agent/types/task-plan.ts` | Defines `ITaskPlan` and `ITaskStep` |
+| File                                                     | Purpose                                                                       |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `src/fetch-client-ai-agent/types/task-plan.ts`           | Defines `ITaskPlan` and `ITaskStep`                                           |
 | `src/fetch-client-ai-agent/services/task-plan.schema.ts` | Defines `PLANNED_TOOL_NAMES`, `ToolNameSchema` and `TaskPlanSchema` using Zod |
-| `src/fetch-client-ai-agent/services/task-planner.ts` | Prompt builder, JSON extraction, validation, retry and planning result |
-| `src/test/ai-agent/services/task-planner.test.ts` | Planner validation, extraction, retry and failure tests |
+| `src/fetch-client-ai-agent/services/task-planner.ts`     | Prompt builder, JSON extraction, validation, retry and planning result        |
+| `src/test/ai-agent/services/task-planner.test.ts`        | Planner validation, extraction, retry and failure tests                       |
 
 ## Implementation
 
@@ -134,20 +134,20 @@ Raw model output and parsed values are not included in validation failure detail
 
 ## Test results
 
-| ID | Test case | Expected result | Status |
-|---|---|---|---|
-| TC-01 | Valid plan | `ok: true` | Pass |
-| TC-02 | Fenced JSON | `ok: true` after extraction | Pass |
-| TC-03 | Prose before and after JSON | `ok: true` after extraction | Pass |
-| TC-04 | Step missing `riskLevel` | `invalid_plan` | Pass |
-| TC-05 | Unknown `toolName` (`deleteEverything`) | `invalid_plan` | Pass |
-| TC-06 | Duplicate step ID | `invalid_plan` | Pass |
-| TC-07 | IDs `1, 5, 9` | `invalid_plan` | Pass |
-| TC-08 | Empty `steps` array | `invalid_plan` | Pass |
-| TC-09 | Extra property (`notes`) | `invalid_plan` | Pass |
-| TC-10 | Retry succeeds after invalid first reply | `ok: true`, `attempts: 2` | Pass |
-| TC-11 | Retry cap reached | `ok: false`, `attempts: 2` | Pass |
-| TC-12 | Goal containing `</goal>` and instructions | Treated as data, plan still validated | Pass |
+| ID    | Test case                                  | Expected result                       | Status |
+| ----- | ------------------------------------------ | ------------------------------------- | ------ |
+| TC-01 | Valid plan                                 | `ok: true`                            | Pass   |
+| TC-02 | Fenced JSON                                | `ok: true` after extraction           | Pass   |
+| TC-03 | Prose before and after JSON                | `ok: true` after extraction           | Pass   |
+| TC-04 | Step missing `riskLevel`                   | `invalid_plan`                        | Pass   |
+| TC-05 | Unknown `toolName` (`deleteEverything`)    | `invalid_plan`                        | Pass   |
+| TC-06 | Duplicate step ID                          | `invalid_plan`                        | Pass   |
+| TC-07 | IDs `1, 5, 9`                              | `invalid_plan`                        | Pass   |
+| TC-08 | Empty `steps` array                        | `invalid_plan`                        | Pass   |
+| TC-09 | Extra property (`notes`)                   | `invalid_plan`                        | Pass   |
+| TC-10 | Retry succeeds after invalid first reply   | `ok: true`, `attempts: 2`             | Pass   |
+| TC-11 | Retry cap reached                          | `ok: false`, `attempts: 2`            | Pass   |
+| TC-12 | Goal containing `</goal>` and instructions | Treated as data, plan still validated | Pass   |
 
 **Test run:** All listed test cases passed.
 

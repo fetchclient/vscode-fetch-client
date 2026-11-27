@@ -43,17 +43,17 @@
 
 ## 4. Provider data-sharing decisions (Day 15, 2026-11-24)
 
-| ID     | Decision                                                                                                                                 | Status                                |
-| ------ | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| DS-01  | Secret, Sensitive, and Unknown variables are never resolved for AI context. Sensitive values are removed, not resolved and then redacted. Pattern masking is backup only. | Accepted                              |
-| DS-02  | Per-task approval is the default. Per-call is available.                                                                                 | Accepted                              |
-| DS-03  | Credential and secret defaults are identical for all providers.                                                                          | Accepted                              |
-| DS-04  | A read-only AI Context Preview is built from the exact submitted bytes, reusing existing viewers.                                        | Accepted                              |
-| DS-05  | Per-session approval is an explicit opt-in with a visible indicator. It is invalidated by a change to provider, model, endpoint, or policy. | Accepted                              |
-| DS-06  | Sensitive data is excluded from logs, telemetry, errors, and history from the first implementation step.                                 | Accepted                              |
-| DS-07  | Provider retention verification.                                                                                                         | Pending verification                  |
-| DS-08  | Local or remote classification comes from the resolved endpoint. Remote endpoints require HTTPS.                                         | Accepted                              |
-| DS-09  | The approval fingerprint covers providerId, modelId, normalized endpoint, classification, policyVersion, and exact payload bytes.        | Accepted                              |
+| ID    | Decision                                                                                                                                                                  | Status               |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| DS-01 | Secret, Sensitive, and Unknown variables are never resolved for AI context. Sensitive values are removed, not resolved and then redacted. Pattern masking is backup only. | Accepted             |
+| DS-02 | Per-task approval is the default. Per-call is available.                                                                                                                  | Accepted             |
+| DS-03 | Credential and secret defaults are identical for all providers.                                                                                                           | Accepted             |
+| DS-04 | A read-only AI Context Preview is built from the exact submitted bytes, reusing existing viewers.                                                                         | Accepted             |
+| DS-05 | Per-session approval is an explicit opt-in with a visible indicator. It is invalidated by a change to provider, model, endpoint, or policy.                               | Accepted             |
+| DS-06 | Sensitive data is excluded from logs, telemetry, errors, and history from the first implementation step.                                                                  | Accepted             |
+| DS-07 | Provider retention verification.                                                                                                                                          | Pending verification |
+| DS-08 | Local or remote classification comes from the resolved endpoint. Remote endpoints require HTTPS.                                                                          | Accepted             |
+| DS-09 | The approval fingerprint covers providerId, modelId, normalized endpoint, classification, policyVersion, and exact payload bytes.                                         | Accepted             |
 
 ## 5. Error logging and sensitive data protection
 

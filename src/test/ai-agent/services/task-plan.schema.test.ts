@@ -26,13 +26,16 @@ describe("task-plan.schema", () => {
 	});
 
 	describe("ToolNameSchema", () => {
-		it.each(PLANNED_TOOL_NAMES)("should successfully parse valid toolName: %s", (name) => {
-			const result = ToolNameSchema.safeParse(name);
-			expect(result.success).toBe(true);
-			if (result.success) {
-				expect(result.data).toBe(name);
-			}
-		});
+		it.each(PLANNED_TOOL_NAMES)(
+			"should successfully parse valid toolName: %s",
+			(name) => {
+				const result = ToolNameSchema.safeParse(name);
+				expect(result.success).toBe(true);
+				if (result.success) {
+					expect(result.data).toBe(name);
+				}
+			},
+		);
 
 		it("should reject unknown tool names", () => {
 			const invalidNames = [
@@ -135,7 +138,11 @@ describe("task-plan.schema", () => {
 					steps: [
 						{ id: 1, description: "Read action", riskLevel: "read" },
 						{ id: 2, description: "Write action", riskLevel: "write" },
-						{ id: 3, description: "Destructive action", riskLevel: "destructive" },
+						{
+							id: 3,
+							description: "Destructive action",
+							riskLevel: "destructive",
+						},
 					],
 				};
 
@@ -259,12 +266,22 @@ describe("task-plan.schema", () => {
 					steps: [{ id: 1, description: "", riskLevel: "read" }],
 				};
 
-				expect(TaskPlanSchema.safeParse(missingDescription).success).toBe(false);
+				expect(TaskPlanSchema.safeParse(missingDescription).success).toBe(
+					false,
+				);
 				expect(TaskPlanSchema.safeParse(emptyDescription).success).toBe(false);
 			});
 
 			it("should reject step with invalid riskLevel", () => {
-				const invalidRiskLevels = ["low", "high", "safe", "READ", "WRITE", "", 123];
+				const invalidRiskLevels = [
+					"low",
+					"high",
+					"safe",
+					"READ",
+					"WRITE",
+					"",
+					123,
+				];
 
 				for (const level of invalidRiskLevels) {
 					const plan = {

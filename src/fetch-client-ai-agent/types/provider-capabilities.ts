@@ -36,9 +36,9 @@ export type CapabilityCheck =
 	| {
 			readonly ok: true;
 			readonly degradations: readonly Degradation[];
-	  }
+	}
 	| {
 			readonly ok: false;
 			readonly missing: readonly CapabilityKey[];
 			readonly degradations: readonly Degradation[];
-	  };
+		};
