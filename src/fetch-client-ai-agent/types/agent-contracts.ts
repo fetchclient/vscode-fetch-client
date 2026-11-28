@@ -257,6 +257,8 @@ export interface IJSONSchemaProperty {
 	description?: string;
 	enum?: readonly string[];
 	items?: IJSONSchemaProperty;
+	minimum?: number;
+	maximum?: number;
 }
 
 /** JSON Schema describing a tool's arguments. */
@@ -284,6 +286,7 @@ export interface ToolDefinition {
 /** Runtime information given to a tool when it executes. */
 export interface IToolContext {
 	taskId: string;
+	toolCallId: string;
 	/** Aborts long-running work when the user cancels. */
 	signal?: AbortSignal;
 	/** Workspace folder, if one is open. */
